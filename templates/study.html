@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>열공 모드 - 빈칸 채우기</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 40px;
+            background-color: #f4f7f6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .quiz-area {
+            line-height: 2.5;
+            font-size: 20px;
+            margin-bottom: 30px;
+        }
+
+        /* [중요] 빈칸 입력창 디자인 */
+        .blank-input {
+            border: none;
+            border-bottom: 2px solid #3498db;
+            background-color: #f1f9ff;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            padding: 2px 5px;
+            margin: 0 5px;
+        }
+
+        .blank-input:focus {
+            outline: none;
+            border-bottom: 2px solid #e74c3c;
+            background-color: #fff;
+        }
+
+        .btn-check {
+            background-color: #2ecc71;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>📖 본문 빈칸 채우기</h1>
+        <form action="/check_answer" method="POST">
+            <div class="quiz-area">
+                {{ processed_text | safe }}
+            </div>
+
+            <div style="text-align: center;">
+                <button type="submit" class="btn-check">재채점 하기</button>
+                <p><a href="/">← 처음으로 돌아가기</a></p>
+            </div>
+        </form>
+    </div>
+</body>
+
+</html>

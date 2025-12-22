@@ -1,20 +1,101 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
-    <title>Google Vision OCR 서비스</title>
+    <title>스마트 학습 OCR 추출기</title>
+    <style>
+        /* 드래그 영역 디자인 */
+        #text-container {
+            border: 2px solid #ddd;
+            padding: 20px;
+            margin-top: 20px;
+            line-height: 2;
+            font-size: 18px;
+            white-space: pre-wrap;
+            /* 줄바꿈 유지 */
+            background-color: #f9f9f9;
+        }
+
+        /* 빈칸(Input) 디자인 */
+        .blank-input {
+            border: none;
+            border-bottom: 2px solid #3498db;
+            background-color: #e8f4fd;
+            text-align: center;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .save-btn {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+    </style>
 </head>
+
 <body>
     <h1>이미지/PDF OCR 추출기</h1>
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" action="/">
         <input type="file" name="file" required>
         <input type="submit" value="텍스트 추출">
     </form>
 
     {% if extracted_text %}
-        <hr>
-        <h2>✨ 추출된 텍스트 결과:</h2>
-        <textarea rows="15" cols="80">{{ extracted_text }}</textarea>
+    <hr>
+    <h2>✨ 텍스트를 드래그하여 빈칸 문제를 만드세요:</h2>
+
+    <div id="text-container">{{ extracted_text }}</div>
+
+    <button class="save-btn" onclick="saveSelectedText()">선택한 단어를 빈칸으로 저장</button>
+
+    <hr>
+    <form action="/study" method="GET">
+        <button type="submit" style="padding:10px 20px; background-color: #3498db; color:white; border:none;">
+            문제 풀기 모드로 이동
+        </button>
+    </form>
     {% endif %}
+
+    <script>
+        function saveSelectedText() {
+            // 1. 사용자가 드래그한 텍스트 가져오기
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+
+            if (!selectedText) {
+                alert("빈칸으로 만들 단어를 드래그해 주세요!");
+                return;
+            }
+
+            // 2. 서버(Flask)로 선택한 단어 전송
+            fetch('/save_blank', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    blank_word: selectedText
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "success") {
+                        alert(`'${selectedText}' 단어가 저장되었습니다.`);
+                        // 선택 해제
+                        selection.removeAllRanges();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert("저장 중 오류가 발생했습니다.");
+                });
+        }
+    </script>
 </body>
+
 </html>
