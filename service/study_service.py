@@ -1,58 +1,78 @@
+from models import db, StudyMaterial
 import uuid
 
 class StudyService:
-    def __init__(self):
-        # 임시 인메모리 DB (서버 재시작 시 초기화됨)
-        # 구조: { "session_id": [ {"word": "사과", "id": "uuid1"}, ... ] }
-        self.db_blanks = {}
+    def save_material(self, user_id, original_text, blank_words, filename=None):
+        """
+        사용자가 추출한 텍스트와 선택한 빈칸 단어 리스트를 DB에 영구 저장합니다.
+        """
+        new_material = StudyMaterial(
+            user_id=user_id,
+            original_text=original_text,
+            blank_words=blank_words,  # JSON 타입으로 ["단어1", "단어2"] 저장
+            filename=filename
+        )
+        db.session.add(new_material)
+        db.session.commit()
+        return new_material.id
 
-    def save_blank_word(self, session_id, word):
-        """사용자가 선택한 단어를 DB에 저장"""
-        if session_id not in self.db_blanks:
-            self.db_blanks[session_id] = []
-        
-        blank_id = str(uuid.uuid4())[:8]
-        self.db_blanks[session_id].append({
-            "id": blank_id,
-            "word": word.strip()
-        })
-        return blank_id
+    def get_material_for_study(self, material_id):
+        """
+        DB에서 학습 자료를 불러와 저장된 단어들을 <input> 태그(빈칸)로 치환합니다.
+        """
+        material = StudyMaterial.query.get(material_id)
+        if not material:
+            return None
 
-    def make_blank_text(self, original_text, session_id):
-        # 해당 세션에 저장된 단어가 없으면 원본 그대로 반환
-        if session_id not in self.db_blanks or not original_text:
-            return original_text
-
-        processed_text = original_text
-        for item in self.db_blanks[session_id]:
-            word = item["word"]
-            # 실제 입력 가능한 HTML input 태그를 만듭니다.
-            # size를 지정하거나 style로 너비를 주면 입력하기 편합니다.
-            blank_html = f'<input type="text" name="answer_{item["id"]}" class="blank-input" style="width:{len(word)*20}px;" autocomplete="off">'
-            
-            # 원본에서 단어를 찾아 input 태그로 교체
+        processed_text = material.original_text
+        # DB에 저장된 JSON 리스트(blank_words)를 순회하며 치환
+        # 인덱스(i)를 사용하여 각 input의 name을 answer_0, answer_1로 구분합니다.
+        for i, word in enumerate(material.blank_words):
+            # 실제 입력 가능한 HTML input 태그 생성
+            # style을 추가하여 이미지와 유사한 '밑줄 형태' 디자인을 적용합니다.
+            blank_html = (
+                f'<input type="text" name="answer_{i}" class="blank-input" '
+                f'style="width:{len(word)*20}px;" autocomplete="off" placeholder="?">'
+            )
+            # 원본 텍스트에서 해당 단어를 1회만 치환 (중복 단어 대응)
             processed_text = processed_text.replace(word, blank_html, 1)
         
         return processed_text
-        
-    def check_answers(self, session_id, user_submitted_data):
-        """사용자가 입력한 값과 DB의 정답을 비교"""
-        if session_id not in self.db_blanks:
-            return []
 
+    def check_answers_from_db(self, material_id, user_submitted_data):
+        """
+        DB에 저장된 정답 리스트와 사용자 입력값을 대소문자 구분 없이 비교합니다.
+        """
+        material = StudyMaterial.query.get(material_id)
+        if not material:
+            return None
+
+        correct_words = material.blank_words
         results = []
-        for item in self.db_blanks[session_id]:
-            user_val = user_submitted_data.get(f'answer_{item["id"]}', '').strip()
-            correct_val = item["word"]
-            
-            is_correct = (user_val == correct_val)
-            results.append({
-                "id": item["id"],
-                "is_correct": is_correct,
-                "user_answer": user_val,
-                "correct_answer": correct_val
-            })
-        return results
+        correct_count = 0
 
-# 싱글톤 객체 생성
+        for i, correct_val in enumerate(correct_words):
+            # 사용자가 입력한 값 가져오기
+            user_val = user_submitted_data.get(f'answer_{i}', '').strip()
+            
+            # [대소문자 무시 비교] 양쪽 다 소문자로 변환하여 비교합니다.
+            is_correct = (user_val.lower() == correct_val.strip().lower())
+            
+            if is_correct:
+                correct_count += 1
+            
+            results.append({
+                "index": i,
+                "user_answer": user_val,
+                "correct_answer": correct_val,
+                "is_correct": is_correct
+            })
+            
+        return {
+            "results": results,
+            "total_count": len(correct_words),
+            "correct_count": correct_count
+        }
+
+# 싱글톤 객체 생성하여 다른 파일에서 import 하여 사용
 study_service = StudyService()
