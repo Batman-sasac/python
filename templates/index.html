@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Google Vision OCR 서비스</title>
+</head>
+<body>
+    <h1>이미지/PDF OCR 추출기</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <input type="submit" value="텍스트 추출">
+    </form>
+
+    {% if extracted_text %}
+        <hr>
+        <h2>✨ 추출된 텍스트 결과:</h2>
+        <textarea rows="15" cols="80">{{ extracted_text }}</textarea>
+    {% endif %}
+</body>
+</html>

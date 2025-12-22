@@ -1,0 +1,4 @@
+Flask
+google-cloud-vision
+google-cloud-storage
+python-detenv
