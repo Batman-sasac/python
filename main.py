@@ -68,21 +68,18 @@ def study_page():
     # 렌더링 시 처리된 텍스트를 보냅니다.
     return render_template('study.html', processed_text=processed_text)
 
+
 @app.route('/check_answer', methods=['POST'])
 def check_answer():
-    user_answers = request.form.getlist('answers') # 사용자가 입력한 정답들
-    results = []
+    # 사용자가 입력한 모든 데이터를 가져옵니다 (answer_xxx 형태)
+    user_submitted_data = request.form
     
-    for i, user_ans in enumerate(user_answers):
-        correct_ans = db_blanks[i]
-        if user_ans.strip() == correct_ans.strip():
-            results.append({"correct": True, "answer": correct_ans})
-            print("정답:{}", results)
-        else:
-            results.append({"correct": False, "answer": correct_ans})
-            
-
+    results = study_service.check_answers('default', user_submitted_data)
+    
+    # 결과 페이지로 데이터 전달
     return render_template('result.html', results=results)
+
+
 
 if __name__ == '__main__':
     # Flask 앱 실행
