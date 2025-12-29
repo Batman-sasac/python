@@ -3,43 +3,144 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>GPT OCR 학습 시작</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 복습 노트 제작기</title>
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Pretendard', sans-serif;
+            padding: 40px;
+            line-height: 1.6;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
             text-align: center;
-            padding: 50px;
+            color: #2c3e50;
+        }
+
+        .setup-section {
+            background: #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        select,
+        input[type="text"],
+        input[type="file"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+
+        .btn {
+            cursor: pointer;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+
+        .btn-ocr {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-blank {
+            background-color: #ffc107;
+            color: #212529;
+        }
+
+        .btn-save {
+            background-color: #28a745;
+            color: white;
+            float: right;
+        }
+
+        .btn:hover {
+            opacity: 0.8;
         }
 
         #result {
             margin-top: 20px;
+            min-height: 300px;
+            border: 2px dashed #adb5bd;
+            padding: 25px;
+            background: #fff;
             white-space: pre-wrap;
-            text-align: left;
-            display: inline-block;
-            border: 1px solid #ccc;
-            padding: 20px;
-            width: 80%;
+            word-break: break-all;
+            font-size: 1.1rem;
         }
 
-        .loading {
-            color: blue;
+        #status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+            font-style: italic;
+        }
+
+        /* 빈칸 스타일 */
+        .blank-span {
+            border-bottom: 2px solid #000;
+            background-color: #fff9db;
+            padding: 0 8px;
+            margin: 0 2px;
+            font-weight: bold;
+            color: #d9480f;
         }
     </style>
 </head>
 
 <body>
-    <h1>GPT OCR 텍스트 추출</h1>
-    <input type="file" id="fileInput" accept="image/*,application/pdf">
-    <button onclick="startOCR()">스캔 시작</button>
 
-    <div id="status"></div>
-    <div id="result">결과가 여기에 표시됩니다.</div>
+    <div class="container">
+        <h1>📚 스마트 복습 노트 제작기</h1>
+
+        <div class="setup-section">
+            <select id="subjectSelect">
+                <option value="">과목 선택</option>
+                <option value="국어">국어</option>
+                <option value="영어">영어</option>
+                <option value="수학">수학</option>
+                <option value="사회">사회</option>
+                <option value="과학">과학</option>
+            </select>
+            <input type="file" id="fileInput" accept="image/*,application/pdf">
+            <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출</button>
+        </div>
+
+        <div style="margin-bottom: 10px;">
+            <button class="btn btn-blank" onclick="makeBlank()">💡 드래그 영역 빈칸 만들기</button>
+            <button class="btn btn-save" onclick="verifyData()">🚀 서버로 데이터 전송(검증)</button>
+        </div>
+
+        <div id="status">파일을 업로드하고 [텍스트 추출]을 눌러주세요.</div>
+        <div id="result" contenteditable="false">OCR 결과가 여기에 표시됩니다.</div>
+    </div>
 
     <script>
+        let originalText = ""; // 원본 보존용
+        let answerList = [];   // 정답 단어들을 담을 배열
+
+        // 1. OCR 실행 함수
         async function startOCR() {
             const fileInput = document.getElementById('fileInput');
+            const status = document.getElementById('status');
             const resultDiv = document.getElementById('result');
-            const statusDiv = document.getElementById('status');
 
             if (!fileInput.files[0]) {
                 alert("파일을 선택해주세요!");
@@ -49,11 +150,9 @@
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            statusDiv.innerText = "분석 중... 잠시만 기다려주세요.";
-            resultDiv.innerText = "";
+            status.innerText = "⏳ GPT가 이미지를 분석 중입니다... 잠시만 기다려주세요.";
 
             try {
-                // FastAPI 서버의 /ocr 엔드포인트 호출
                 const response = await fetch("http://127.0.0.1:8000/ocr", {
                     method: "POST",
                     body: formData
@@ -61,16 +160,83 @@
                 const data = await response.json();
 
                 if (data.status === "success") {
+                    originalText = data.text; // 원본 데이터 저장
+                    answerList = []; // 배열 초기화
                     resultDiv.innerText = data.text;
-                    statusDiv.innerText = "분석 완료!";
+                    status.innerText = "✅ 분석 완료! 중요 단어를 드래그한 뒤 [빈칸 만들기]를 누르세요.";
                 } else {
-                    resultDiv.innerText = "에러: " + data.message;
+                    status.innerText = "❌ 오류: " + data.message;
                 }
             } catch (error) {
-                resultDiv.innerText = "서버 연결 실패: " + error;
+                status.innerText = "❌ 서버 연결 실패";
+                console.error(error);
+            }
+        }
+
+        // 2. 드래그 후 빈칸 생성 및 배열 추가
+        function makeBlank() {
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+
+            if (selectedText) {
+                // 배열에 정답 단어 추가
+                answerList.push(selectedText);
+
+                const range = selection.getRangeAt(0);
+                const span = document.createElement("span");
+
+                // 시각적으로 빈칸임을 알 수 있게 스타일 적용
+                span.className = "blank-span";
+                span.innerText = `(${answerList.length})`; // 몇 번째 빈칸인지 표시
+
+                range.deleteContents();
+                range.insertNode(span);
+
+                // 드래그 해제
+                selection.removeAllRanges();
+
+                console.log("현재까지 추출된 정답 리스트:", answerList);
+            } else {
+                alert("빈칸으로 만들 단어를 마우스로 드래그하세요!");
+            }
+        }
+
+        // 3. 서버로 전송하여 데이터 확인 (최종 검증)
+        async function verifyData() {
+            const subject = document.getElementById('subjectSelect').value || "미지정 과목";
+            const resultDiv = document.getElementById('result');
+            const quizText = resultDiv.innerText;
+
+            if (answerList.length === 0) {
+                alert("빈칸을 하나 이상 만들어주세요!");
+                return;
+            }
+
+            const payload = {
+                subject_name: subject,
+                original: originalText,
+                quiz: quizText,
+                answers: answerList
+            };
+
+            console.log("서버로 보낼 최종 데이터:", payload);
+
+            try {
+                const response = await fetch("http://127.0.0.1:8000/save-test", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                alert("성공: " + result.message + "\n\n파이썬 터미널 로그를 확인해 보세요!");
+            } catch (error) {
+                alert("서버 전송 중 오류 발생");
+                console.error(error);
             }
         }
     </script>
+
 </body>
 
 </html>
