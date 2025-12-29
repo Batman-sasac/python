@@ -1,87 +1,51 @@
-from flask import Flask, request, render_template
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+from core.gpt_service import GPTService
+import base64
+import uvicorn
 import os
-import uuid
 from dotenv import load_dotenv
-from core.vision_service import detect_text_from_image, async_detect_document_text
-from service.study_service import study_service
+
+app = FastAPI()
+
+# 브라우저 통신 허용 (CORS)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 load_dotenv()
-app = Flask(__name__)
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf', 'tiff'}
-GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
+API_KEY = os.getenv("OPENAI_API_KEY")
+gpt_service = GPTService(API_KEY)
 
+@app.get("/", response_class=HTMLResponse)
+async def read_index():
+    # 경로를 'templates/index.html'로 지정합니다.
+    file_path = os.path.join("templates", "index.html")
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return f"<h1>에러: {file_path} 파일을 찾을 수 없습니다.</h1>"
 
-current_extracted_text = ""
-
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@app.route('/', methods=['GET', 'POST'])
-def upload_file():
-    global current_extracted_text
-    extracted_text = None
-    
-    if request.method == 'POST':
-        file = request.files['file']
-        if file and allowed_file(file.filename):
-            file_ext = file.filename.rsplit('.', 1)[1].lower()
-            
-            try:
-                if file_ext in ['pdf']:
-                    # PDF 처리 (GCS 업로드 없이 바로 함수 호출)
-                    extracted_text = async_detect_document_text(file)
-                else:
-                    # 이미지 처리
-                    file_content = file.read()
-                    extracted_text = detect_text_from_image(file_content)
-
-                    # 3. 추출된 값을 전역 변수에 저장
-                current_extracted_text = extracted_text
-                return render_template('index.html', extracted_text=extracted_text)
-
-            except Exception as e:
-                extracted_text = f"오류 발생: {e}"
+@app.post("/ocr")
+async def run_ocr_endpoint(file: UploadFile = File(...)):
+    try:
+        # 1. 파일 데이터 읽기
+        file_bytes = await file.read()
         
-    return render_template('index.html')
-    
+        # 2. 이미지/PDF 통합 처리 함수 호출
+        extracted_text = gpt_service.process_file(file_bytes, file.filename)
+        
+        return {"status": "success", "text": extracted_text}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-@app.route('/save_blank', methods=['POST'])
-def save_blank():
-    data = request.get_json()
-    blank_word = data.get('blank_word')
-    
-    # [중요] 'default'라는 ID로 단어를 저장합니다.
-    study_service.save_blank_word('default', blank_word)
-    return {"status": "success"}
-
-@app.route('/study')
-def study_page():
-    global current_extracted_text
-    
-    if not current_extracted_text:
-        return "추출된 텍스트가 없습니다. 먼저 텍스트를 추출하세요."
-
-    # [중요] 저장할 때 썼던 'default' ID를 똑같이 사용하여 빈칸을 만듭니다.
-    processed_text = study_service.make_blank_text(current_extracted_text, 'default')
-    
-    # 렌더링 시 처리된 텍스트를 보냅니다.
-    return render_template('study.html', processed_text=processed_text)
-
-
-@app.route('/check_answer', methods=['POST'])
-def check_answer():
-    # 사용자가 입력한 모든 데이터를 가져옵니다 (answer_xxx 형태)
-    user_submitted_data = request.form
-    
-    results = study_service.check_answers('default', user_submitted_data)
-    
-    # 결과 페이지로 데이터 전달
-    return render_template('result.html', results=results)
-
-
-
-if __name__ == '__main__':
-    # Flask 앱 실행
-    # (실제 환경에서는 gunicorn 등 WSGI 서버 사용 권장)
-    app.run(debug=True, use_reloader=False)
+if __name__ == "__main__":
+    host = "127.0.0.1"
+    port = 8000
+    print(f"\n🚀 서버 가동 중: http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port)

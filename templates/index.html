@@ -3,97 +3,72 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>스마트 학습 OCR 추출기</title>
+    <title>GPT OCR 학습 시작</title>
     <style>
-        /* 드래그 영역 디자인 */
-        #text-container {
-            border: 2px solid #ddd;
-            padding: 20px;
-            margin-top: 20px;
-            line-height: 2;
-            font-size: 18px;
-            white-space: pre-wrap;
-            /* 줄바꿈 유지 */
-            background-color: #f9f9f9;
-        }
-
-        /* 빈칸(Input) 디자인 */
-        .blank-input {
-            border: none;
-            border-bottom: 2px solid #3498db;
-            background-color: #e8f4fd;
+        body {
+            font-family: sans-serif;
             text-align: center;
-            font-weight: bold;
-            color: #2c3e50;
+            padding: 50px;
         }
 
-        .save-btn {
-            margin-top: 10px;
-            padding: 10px 20px;
-            background-color: #27ae60;
-            color: white;
-            border: none;
-            cursor: pointer;
+        #result {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            text-align: left;
+            display: inline-block;
+            border: 1px solid #ccc;
+            padding: 20px;
+            width: 80%;
+        }
+
+        .loading {
+            color: blue;
         }
     </style>
 </head>
 
 <body>
-    <h1>이미지/PDF OCR 추출기</h1>
-    <form method="POST" enctype="multipart/form-data" action="/">
-        <input type="file" name="file" required>
-        <input type="submit" value="텍스트 추출">
-    </form>
+    <h1>GPT OCR 텍스트 추출</h1>
+    <input type="file" id="fileInput" accept="image/*,application/pdf">
+    <button onclick="startOCR()">스캔 시작</button>
 
-    {% if extracted_text %}
-    <hr>
-    <h2>✨ 텍스트를 드래그하여 빈칸 문제를 만드세요:</h2>
-
-    <div id="text-container">{{ extracted_text }}</div>
-
-    <button class="save-btn" onclick="saveSelectedText()">선택한 단어를 빈칸으로 저장</button>
-
-    <hr>
-    <form action="/study" method="GET">
-        <button type="submit" style="padding:10px 20px; background-color: #3498db; color:white; border:none;">
-            문제 풀기 모드로 이동
-        </button>
-    </form>
-    {% endif %}
+    <div id="status"></div>
+    <div id="result">결과가 여기에 표시됩니다.</div>
 
     <script>
-        function saveSelectedText() {
-            // 1. 사용자가 드래그한 텍스트 가져오기
-            const selection = window.getSelection();
-            const selectedText = selection.toString().trim();
+        async function startOCR() {
+            const fileInput = document.getElementById('fileInput');
+            const resultDiv = document.getElementById('result');
+            const statusDiv = document.getElementById('status');
 
-            if (!selectedText) {
-                alert("빈칸으로 만들 단어를 드래그해 주세요!");
+            if (!fileInput.files[0]) {
+                alert("파일을 선택해주세요!");
                 return;
             }
 
-            // 2. 서버(Flask)로 선택한 단어 전송
-            fetch('/save_blank', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    blank_word: selectedText
-                })
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === "success") {
-                        alert(`'${selectedText}' 단어가 저장되었습니다.`);
-                        // 선택 해제
-                        selection.removeAllRanges();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert("저장 중 오류가 발생했습니다.");
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            statusDiv.innerText = "분석 중... 잠시만 기다려주세요.";
+            resultDiv.innerText = "";
+
+            try {
+                // FastAPI 서버의 /ocr 엔드포인트 호출
+                const response = await fetch("http://127.0.0.1:8000/ocr", {
+                    method: "POST",
+                    body: formData
                 });
+                const data = await response.json();
+
+                if (data.status === "success") {
+                    resultDiv.innerText = data.text;
+                    statusDiv.innerText = "분석 완료!";
+                } else {
+                    resultDiv.innerText = "에러: " + data.message;
+                }
+            } catch (error) {
+                resultDiv.innerText = "서버 연결 실패: " + error;
+            }
         }
     </script>
 </body>
