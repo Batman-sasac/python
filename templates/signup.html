@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>닉네임 설정</title>
+</head>
+
+<body>
+    <div style="max-width: 400px; margin: 100px auto; text-align: center;">
+        <h2>환영합니다!</h2>
+        <p>사용하실 닉네임을 설정해주세요.</p>
+        <input type="text" id="nickname" placeholder="닉네임 입력" style="padding: 10px; width: 80%;">
+        <button onclick="completeSignup()" style="margin-top: 20px; padding: 10px 20px;">가입 완료</button>
+    </div>
+
+    <script>
+        // URL에서 social_id와 email 추출
+        const urlParams = new URLSearchParams(window.location.search);
+        const socialId = urlParams.get('social_id');
+        const email = urlParams.get('email');
+
+        async function completeSignup() {
+            const nickname = document.getElementById('nickname').value;
+            if (!nickname) return alert("닉네임을 입력하세요!");
+
+            const response = await fetch("http://127.0.0.1:8000/auth/signup", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    social_id: socialId,
+                    nickname: nickname,
+                    email: email
+                })
+            });
+
+            const result = await response.json();
+            if (result.status === "success") {
+                alert("가입 성공! 메인 화면으로 이동합니다.");
+                location.href = "/"; // 메인(index.html)으로 이동
+            }
+        }
+    </script>
+</body>
+
+</html>
