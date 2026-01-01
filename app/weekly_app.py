@@ -11,9 +11,7 @@ async def set_study_goal(
     payload: dict = Body(...), 
     user_email: Optional[str] = Cookie(None)
 ):
-    if not user_email:
-        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
-
+    
     target_count = payload.get("target_count")
     if not target_count or int(target_count) < 1:
         return {"status": "error", "message": "올바른 목표 횟수를 입력하세요."}
@@ -45,10 +43,6 @@ async def set_study_goal(
 @app.get("/setting", response_class=HTMLResponse)
 async def index_page(user_email: Optional[str] = Cookie(None)): # 변수명 확인!
     print(f"현재 브라우저에서 넘어온 쿠키 값: {user_email}") # 서버 터미널에 출력됨
-    
-    if not user_email:
-        print("쿠키가 없어서 로그인 페이지로 튕깁니다.")
-        return RedirectResponse(url="/")
     
     with open("templates/weeklyTarget.html", "r", encoding="utf-8") as f:
         return f.read()

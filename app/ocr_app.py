@@ -71,9 +71,6 @@ async def save_test(
     data: QuizSaveRequest, 
     user_email: Optional[str] = Cookie(None)
 ):
-    if not user_email:
-        return {"status": "error", "message": "로그인이 필요합니다."}
-
     conn = get_db()
     if not conn:
         return {"status": "error", "message": "데이터베이스 연결 실패"}
@@ -113,9 +110,7 @@ async def save_test(
     blank_text: str = Form(...),
     user_email: Optional[str] = Cookie(None)  # 쿠키에서 이메일 가져오기
 ):
-    if not user_email:
-        return {"error": "로그인이 필요합니다."}
-
+   
     conn = get_db()
     cur = conn.cursor()
     try:

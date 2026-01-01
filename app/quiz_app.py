@@ -18,8 +18,8 @@ async def grade_quiz(
     correct_ans: List[str] = Form(...),
     user_email: Optional[str] = Cookie(None)
 ):
-    if not user_email:
-        return JSONResponse(status_code=401, content={"error": "로그인이 필요합니다."})
+    if not correct_ans:
+        return {"error": "데이터가 필요합니다."}
 
     # 1. 채점 로직
     score = 0

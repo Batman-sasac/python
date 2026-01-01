@@ -10,16 +10,6 @@ from database import get_db
 load_dotenv()
 app = APIRouter(prefix="/auth", tags=["Auth"])
 
-# DB 연결 설정
-def get_db():
-    return psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS")
-    )
-
-
 @app.get("/kakao/callback")
 async def kakao_callback(code: str):
     # 1. 인가 코드로 Access Token 받기
