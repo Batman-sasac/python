@@ -5,6 +5,7 @@ from fastapi import APIRouter, Response, Cookie, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
+from database import get_db
 
 load_dotenv()
 app = APIRouter(prefix="/auth", tags=["Auth"])

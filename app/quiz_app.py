@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List
+from database import get_db
 
 app = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -11,7 +12,7 @@ class QuizSubmitRequest(BaseModel):
     user_answers: List[str]
     correct_answers: List[str]  # 검증을 위해 프론트에서 같이 보내거나 DB에서 가져옴
 
-@router.post("/grade")
+@app.post("/grade")
 async def grade_quiz(
     user_ans: List[str] = Form(...), 
     correct_ans: List[str] = Form(...),

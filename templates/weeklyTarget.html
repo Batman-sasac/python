@@ -1,0 +1,32 @@
+<div class="goal-section" style="background: #e7f3ff; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+    <strong>📅 주간 학습 목표 설정:</strong>
+    <input type="number" id="weeklyTarget" min="1" max="7" value="3" style="width: 50px; padding: 5px;"> 회
+    <button class="btn" onclick="saveGoal()" style="background: var(--primary); color: white; padding: 5px 10px;">설정
+        저장</button>
+    <p id="goalStatus" style="font-size: 0.8rem; margin-top: 5px; color: #555;">이번 주 학습 횟수: <span
+            id="thisWeekCount">0</span>회</p>
+</div>
+
+<script>
+    // 목표 저장 함수
+    async function saveGoal() {
+        const target = document.getElementById('weeklyTarget').value;
+        const res = await fetch("/quiz/set-goal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ weekly_target: target })
+        });
+        const data = await res.json();
+        alert(data.message);
+    }
+
+    // 페이지 로드 시 현재 달성도 조회 (위에서 말한 '조회' 연동)
+    window.onload = async function () {
+        const res = await fetch("/quiz/my-status");
+        const data = await res.json();
+        if (data.weekly_count !== undefined) {
+            document.getElementById('thisWeekCount').innerText = data.weekly_count;
+            document.getElementById('weeklyTarget').value = data.weekly_target || 3;
+        }
+    }
+</script>
