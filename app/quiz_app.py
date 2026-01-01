@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Cookie, Body, Request, Form
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from database import get_db
+from datetime import datetime, timedelta
 
 app = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -14,8 +16,7 @@ class QuizSubmitRequest(BaseModel):
 
 @app.post("/grade")
 async def grade_quiz(
-    user_ans: List[str] = Form(...), 
-    correct_ans: List[str] = Form(...),
+    payload: dict = Body(...),
     user_email: Optional[str] = Cookie(None)
 ):
     if not correct_ans:

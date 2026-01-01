@@ -1,0 +1,78 @@
+<div class="card">
+    <h3>🔔 복습 알림 설정</h3>
+    <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+        <span>매일 알림 받기</span>
+        <input type="checkbox" id="notifySwitch" onchange="toggleTimeUI()">
+    </div>
+
+    <div id="timeDisplay" onclick="openTimePicker()"
+        style="display:none; background:#f0f4ff; padding:15px; border-radius:10px; text-align:center; cursor:pointer; font-weight:bold; color:#4A7DFF;">
+        오전 07 : 30
+    </div>
+
+    <button onclick="saveNotification()"
+        style="width:100%; margin-top:20px; padding:12px; background:#4A7DFF; color:white; border:none; border-radius:10px;">저장하기</button>
+</div>
+
+<div id="timeModal"
+    style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+    <div style="background:white; padding:25px; border-radius:20px; width:260px; text-align:center;">
+        <h4>시간 선택</h4>
+        <div style="display:flex; justify-content:center; gap:5px; margin:20px 0;">
+            <select id="ampm">
+                <option>오전</option>
+                <option>오후</option>
+            </select>
+            <select id="hour"></select> : <select id="min"></select>
+        </div>
+        <button onclick="confirmTime()"
+            style="width:100%; background:#4A7DFF; color:white; border:none; padding:10px; border-radius:8px;">확인</button>
+    </div>
+</div>
+
+<script>
+    // 시간/분 셀렉트 박스 초기화
+    const hSel = document.getElementById('hour');
+    const mSel = document.getElementById('min');
+    for (let i = 1; i <= 12; i++) hSel.innerHTML += `<option>${i}</option>`;
+    for (let i = 0; i < 60; i += 10) mSel.innerHTML += `<option>${i.toString().padStart(2, '0')}</option>`;
+
+    function toggleTimeUI() {
+        const isChecked = document.getElementById('notifySwitch').checked;
+        document.getElementById('timeDisplay').style.display = isChecked ? 'block' : 'none';
+    }
+
+    function openTimePicker() { document.getElementById('timeModal').style.display = 'flex'; }
+
+    function confirmTime() {
+        const ampm = document.getElementById('ampm').value;
+        const h = document.getElementById('hour').value;
+        const m = document.getElementById('min').value;
+        document.getElementById('timeDisplay').innerText = `${ampm} ${h.padStart(2, '0')} : ${m}`;
+        document.getElementById('timeModal').style.display = 'none';
+    }
+
+    async function saveNotification() {
+        const ampm = document.getElementById('ampm').value;
+        let h = parseInt(document.getElementById('hour').value);
+        const m = document.getElementById('min').value;
+
+        // 24시간제로 변환 (DB 저장용)
+        if (ampm === "오후" && h !== 12) h += 12;
+        if (ampm === "오전" && h === 12) h = 0;
+        const time24 = `${h.toString().padStart(2, '0')}:${m}`;
+
+        const payload = {
+            is_notify: document.getElementById('notifySwitch').checked,
+            remind_time: time24
+        };
+
+        const res = await fetch("/update-notification", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        alert(result.message);
+    }
+</script>

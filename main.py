@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Cookie
+from fastapi import FastAPI, Cookie, Request
 from typing import Optional
 import uvicorn
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app import ocr_app, quiz_app, user_app
+from app import ocr_app, quiz_app, user_app, notification_app
 import os
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
@@ -15,6 +15,7 @@ app = FastAPI()
 app.include_router(user_app.app)
 app.include_router(ocr_app.app)
 app.include_router(quiz_app.app)
+app.include_router(notification_app.app)
 
 # 브라우저 통신 허용 (CORS)
 app.add_middleware(
@@ -54,8 +55,6 @@ async def auth_middleware(request: Request, call_next):
 @app.get("/", response_class=HTMLResponse)
 async def login_page(session_user: Optional[str] = Cookie(None)):
     # 이미 로그인된 사용자라면 인덱스로 바로 이동
-    if user_email:
-        return RedirectResponse(url="/index")
         
     with open("templates/login.html", "r", encoding="utf-8") as f:
         content = f.read()
