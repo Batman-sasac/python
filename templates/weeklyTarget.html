@@ -1,32 +1,44 @@
-<div class="goal-section" style="background: #e7f3ff; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-    <strong>📅 주간 학습 목표 설정:</strong>
-    <input type="number" id="weeklyTarget" min="1" max="7" value="3" style="width: 50px; padding: 5px;"> 회
-    <button class="btn" onclick="saveGoal()" style="background: var(--primary); color: white; padding: 5px 10px;">설정
-        저장</button>
-    <p id="goalStatus" style="font-size: 0.8rem; margin-top: 5px; color: #555;">이번 주 학습 횟수: <span
-            id="thisWeekCount">0</span>회</p>
+<div class="goal-setting-card"
+    style="background: white; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e0e0e0;">
+    <h3 style="margin-top: 0; color: #333;">📅 나의 주간 학습 목표</h3>
+    <div style="display: flex; align-items: center; gap: 15px;">
+        <label for="goalInput">주당 목표 횟수:</label>
+        <input type="number" id="goalInput" min="1" max="7" value="3"
+            style="width: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 5px; text-align: center;">
+        <span style="color: #666;">회</span>
+        <button class="btn btn-ocr" onclick="updateGoal()" style="margin-left: auto;">목표 저장</button>
+    </div>
+    <p id="goalMessage" style="margin-top: 10px; font-size: 0.85rem; color: var(--primary);"></p>
 </div>
 
 <script>
-    // 목표 저장 함수
-    async function saveGoal() {
-        const target = document.getElementById('weeklyTarget').value;
-        const res = await fetch("/quiz/set-goal", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ weekly_target: target })
-        });
-        const data = await res.json();
-        alert(data.message);
-    }
+    // 페이지 로드 시 기존 설정값 가져오기 (필요 시 추가 구현)
+    // window.onload = fetchCurrentGoal;
 
-    // 페이지 로드 시 현재 달성도 조회 (위에서 말한 '조회' 연동)
-    window.onload = async function () {
-        const res = await fetch("/quiz/my-status");
-        const data = await res.json();
-        if (data.weekly_count !== undefined) {
-            document.getElementById('thisWeekCount').innerText = data.weekly_count;
-            document.getElementById('weeklyTarget').value = data.weekly_target || 3;
+    async function updateGoal() {
+        const target = document.getElementById('goalInput').value;
+        const msgElement = document.getElementById('goalMessage');
+
+        try {
+            const res = await fetch("/quiz/set-goal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ target_count: target })
+            });
+
+            if (res.status === 401) {
+                return alert("로그인이 필요한 기능입니다.");
+            }
+
+            const data = await res.json();
+            if (data.status === "success") {
+                msgElement.innerText = "✅ " + data.message;
+                setTimeout(() => msgElement.innerText = "", 3000); // 3초 후 메시지 삭제
+            } else {
+                alert("저장 실패: " + data.message);
+            }
+        } catch (e) {
+            alert("서버 연결에 실패했습니다.");
         }
     }
 </script>
