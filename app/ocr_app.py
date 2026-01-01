@@ -61,30 +61,3 @@ async def save_test(
     finally:
         cur.close()
         conn.close()
-
-# 3. [추가] 복습 알림 설정 저장 엔드포인트 (users 테이블 업데이트)
-@app.post("/update-notification")
-async def update_notification(
-    payload: dict = Body(...), 
-    user_email: Optional[str] = Cookie(None)
-):
-    # 미들웨어가 통과시켰다면 user_email은 존재함
-    is_notify = payload.get("is_notify")
-    remind_time = payload.get("remind_time") # "07:30" 형식
-
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            UPDATE users 
-            SET is_notify = %s, remind_time = %s 
-            WHERE email = %s
-        """, (is_notify, remind_time, user_email))
-        conn.commit()
-        return {"status": "success", "message": "복습 알림 설정이 저장되었습니다."}
-    except Exception as e:
-        if conn: conn.rollback()
-        return {"status": "error", "message": str(e)}
-    finally:
-        cur.close()
-        conn.close()

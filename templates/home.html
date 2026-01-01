@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>학습 홈 - 성장 그래프</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .chart-container {
+            width: 100%;
+            max-width: 500px;
+            padding: 20px;
+            background: #fff;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .summary-text {
+            font-size: 1.1rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .sub-text {
+            font-size: 0.9rem;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="chart-container">
+        <div id="summaryMessage" class="summary-text">데이터를 불러오는 중...</div>
+
+        <canvas id="growthChart"></canvas>
+
+        <div class="sub-text" style="margin-top:10px;">
+            정답률 × 출석률: <span id="totalIndex" style="font-weight:bold;">0</span>
+        </div>
+    </div>
+
+    <script>
+        // 1. 그래프 초기 설정
+        const ctx = document.getElementById('growthChart').getContext('2d');
+        let growthChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // 백엔드에서 날짜를 받아올 예정
+                datasets: [{
+                    label: '성장 지수',
+                    data: [], // 백엔드에서 [20, 40, 30, 60, 100]을 받아올 예정
+                    borderColor: '#4A90E2', // 파란색 선
+                    backgroundColor: 'rgba(74, 144, 226, 0.1)', // 선 아래 연한 채우기
+                    fill: true,
+                    tension: 0.4, // 선을 부드럽게 (곡선)
+                    pointRadius: 5,
+                    pointBackgroundColor: '#4A90E2'
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false } // 범례 숨김
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        display: false // Y축 숫자 숨김 (이미지 디자인 반영)
+                    },
+                    x: {
+                        grid: { display: false } // X축 격자 숨김
+                    }
+                }
+            }
+        });
+
+        // 2. 백엔드에서 데이터 가져오기 (Fetch API)
+        async function loadGrowthData() {
+            try {
+                // 이전에 만든 백엔드 엔드포인트 호출
+                const response = await fetch('/stats/weekly-growth');
+                const result = await response.json();
+
+                if (result.data) {
+                    // 그래프 업데이트
+                    growthChart.data.labels = result.labels; // ["12/28", ...]
+                    growthChart.data.datasets[0].data = result.data; // [20, 40, 30, 60, 100]
+                    growthChart.update();
+
+                    // 텍스트 업데이트
+                    document.getElementById('summaryMessage').innerText = "이번 주, 지난 주보다 " + (result.growth_rate || 12) + "% 더 성장했어요!";
+                    document.getElementById('totalIndex').innerText = result.data[result.data.length - 1];
+                }
+            } catch (error) {
+                console.error("데이터 로드 실패:", error);
+                document.getElementById('summaryMessage').innerText = "데이터를 불러올 수 없습니다.";
+            }
+        }
+
+        // 페이지 로드 시 실행
+        loadGrowthData();
+    </script>
+</body>
+
+</html>

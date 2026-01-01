@@ -3,7 +3,8 @@ from typing import Optional
 import uvicorn
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app import ocr_app, quiz_app, user_app, notification_app
+from app import ocr_app, quiz_app, user_app, notification_app, reward_app
+from app.reward_app import check_attendance_and_reward
 import os
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
@@ -16,6 +17,7 @@ app.include_router(user_app.app)
 app.include_router(ocr_app.app)
 app.include_router(quiz_app.app)
 app.include_router(notification_app.app)
+app.include_router(reward_app.app)
 
 # 브라우저 통신 허용 (CORS)
 app.add_middleware(
@@ -64,11 +66,24 @@ async def login_page(session_user: Optional[str] = Cookie(None)):
     return content.replace("{{KAKAO_REST_API_KEY}}", str(rest_key))
 
 @app.get("/index", response_class=HTMLResponse)
-async def index_page(): 
+async def index_page(user_email: str = Cookie(None)):
+    # 출석 체크 리워드 
+
+    is_new_reward = False
+    total_points = 0
+
+    if user_email:
+        # 여기서 두 개의 값을 받습니다.
+        is_new_reward, total_points = await check_attendance_and_reward(user_email)
+
     
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return f.read()
 
+    if is_new_reward:
+        # 간단한 자바스크립트 삽입 예시
+        content = content.replace("</body>", f"<script>alert('오늘의 출석 보상 1P가 지급되었습니다! (총 {total_points}P)');</script></body>")
+    return content
 
 if __name__ == "__main__":
     host = "127.0.0.1"

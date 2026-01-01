@@ -51,6 +51,13 @@ async def grade_quiz(
                 INSERT INTO reward_history (user_email, reward_amount, reason) 
                 VALUES (%s, %s, %s)
             """, (user_email, reward, f"퀴즈 결과: {correct_count}/{total_questions} 정답"))
+            
+            cur.execute("""
+            UPDATE users 
+            SET point = point + %s 
+            WHERE email = %s
+            """, (reward, user_email))
+            
             conn.commit()
 
             # 4. 결과 출력 (터미널 로그)
