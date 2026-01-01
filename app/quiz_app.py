@@ -11,21 +11,21 @@ class QuizSubmitRequest(BaseModel):
     user_answers: List[str]
     correct_answers: List[str]  # 검증을 위해 프론트에서 같이 보내거나 DB에서 가져옴
 
-@app.post("/grade")
-async def grade_quiz(submission: QuizSubmitRequest):
-    user_ans = submission.user_answers
-    correct_ans = submission.correct_answers
-    
-    # 1. 개수 확인
-    if len(user_ans) != len(correct_ans):
-        raise HTTPException(status_code=400, detail="답안의 개수가 일치하지 않습니다.")
+@router.post("/grade")
+async def grade_quiz(
+    user_ans: List[str] = Form(...), 
+    correct_ans: List[str] = Form(...),
+    user_email: Optional[str] = Cookie(None)
+):
+    if not user_email:
+        return JSONResponse(status_code=401, content={"error": "로그인이 필요합니다."})
 
-    # 2. 채점 로직
+    # 1. 채점 로직
     score = 0
     correct_count = 0
     total_questions = len(correct_ans)
-    
-    results = [] # 각 문제당 정오표
+    results = []
+
     for u, c in zip(user_ans, correct_ans):
         is_correct = (u.strip() == c.strip())
         if is_correct:
@@ -33,24 +33,42 @@ async def grade_quiz(submission: QuizSubmitRequest):
             correct_count += 1
         results.append({"user": u, "correct": c, "is_correct": is_correct})
 
-    reward = score
+    # 2. 리워드 계산 (보내주신 로직 반영)
+    reward = score  # 기본적으로 맞춘 개수당 1점
     is_all_correct = (correct_count == total_questions)
     
-    if is_all_correct:
-        reward = score * 2
+    if is_all_correct and total_questions > 0:
+        reward = 30  # 다 맞추면 보너스로 30점
 
-    # 4. 결과 출력 (터미널 로그)
-    print("\n" + "🎯"*10 + " 채점 결과 " + "🎯"*10)
-    print(f"정답률: {correct_count}/{total_questions}")
-    print(f"획득 점수: {score}점")
-    print(f"최종 리워드: {reward}P {'(2배 보너스!)' if is_all_correct else ''}")
-    print(f"상세 결과: {results}")
-    print("="*40 + "\n")
+    # 3. DB에 리워드 저장 (연결된 이메일 기준)
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        if reward > 0:
+            cur.execute("""
+                INSERT INTO reward_history (user_email, reward_amount, reason) 
+                VALUES (%s, %s, %s)
+            """, (user_email, reward, f"퀴즈 결과: {correct_count}/{total_questions} 정답"))
+            conn.commit()
 
-    return {
-        "status": "success",
-        "score": score,
-        "reward": reward,
-        "is_all_correct": is_all_correct,
-        "details": results
-    }
+            # 4. 결과 출력 (터미널 로그)
+        print("\n" + "🎯"*10 + " 채점 결과 " + "🎯"*10)
+        print(f"정답률: {correct_count}/{total_questions}")
+        print(f"획득 점수: {score}점")
+        print(f"최종 리워드: {reward}P {'(2배 보너스!)' if is_all_correct else ''}")
+        print(f"상세 결과: {results}")
+        print("="*40 + "\n")
+
+        return {
+            "score": score,
+            "total": total_questions,
+            "reward_given": reward,
+            "is_all_correct": is_all_correct,
+            "results": results
+        }
+    except Exception as e:
+        print(f"리워드 저장 오류: {e}")
+        return {"error": "채점은 완료되었으나 리워드 저장에 실패했습니다."}
+    finally:
+        cur.close()
+        conn.close()

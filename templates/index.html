@@ -148,7 +148,7 @@
         let originalText = "";
         let answerList = []; // 정답 배열
 
-        // 1. OCR 시작
+        // 1. OCR 시작 (백엔드 /ocr 엔드포인트와 연결)
         async function startOCR() {
             const fileInput = document.getElementById('fileInput');
             if (!fileInput.files[0]) return alert("파일을 선택하세요!");
@@ -156,53 +156,62 @@
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            document.getElementById('status').innerText = "GPT 분석 중...";
+            document.getElementById('status').innerText = "텍스트 추출 및 분석 중...";
 
             try {
-                const res = await fetch("http://127.0.0.1:8000/ocr", { method: "POST", body: formData });
+                // fetch 주소에서 http://127.0.0.1:8000/ 부분을 /ocr 로 상대경로 처리하면 더 안정적입니다.
+                const res = await fetch("/ocr", { method: "POST", body: formData });
                 const data = await res.json();
+
                 if (data.status === "success") {
                     originalText = data.text;
                     document.getElementById('result-area').innerText = data.text;
                     document.getElementById('status').innerText = "분석 완료! 빈칸을 만들 단어를 드래그하세요.";
-                    answerList = []; // 초기화
+                    answerList = [];
+                    document.getElementById('input-list').innerHTML = ""; // 이전 입력창 비우기
                     document.getElementById('quiz-section').style.display = 'none';
                 }
-            } catch (e) { alert("OCR 실패!"); }
+            } catch (e) {
+                console.error(e);
+                alert("OCR 추출에 실패했습니다. 서버 연결을 확인하세요.");
+            }
         }
 
-        // 2. 드래그 빈칸 생성 및 입력창 동적 생성
+        // 2. 드래그 빈칸 생성 (번호 매기기 및 입력창 추가)
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
 
             if (selectedText) {
-                answerList.push(selectedText);
+                answerList.push(selectedText); // 정답 리스트에 추가
 
                 const range = selection.getRangeAt(0);
                 const span = document.createElement("span");
                 span.className = "blank-span";
-                span.innerText = `(${answerList.length})`; // (1), (2) 번호
+                span.innerText = `(${answerList.length})`;
 
                 range.deleteContents();
                 range.insertNode(span);
 
-                // 하단 채점 영역에 입력창 추가
+                // 하단 채점 영역 활성화 및 입력창 추가
                 document.getElementById('quiz-section').style.display = 'block';
                 const inputList = document.getElementById('input-list');
                 const div = document.createElement('div');
                 div.className = 'input-card';
-                div.innerHTML = `<strong>(${answerList.length})번 문제:</strong> <input type="text" class="user-ans" placeholder="정답 입력">`;
+                div.innerHTML = `<strong>(${answerList.length})번 문제:</strong> 
+                                 <input type="text" class="user-ans" placeholder="정답 입력">`;
                 inputList.appendChild(div);
 
-                selection.removeAllRanges(); // 드래그 해제
+                selection.removeAllRanges();
             }
         }
 
-        // 3. 백엔드 save-test 연동
+        // 3. 데이터 저장 (백엔드 /auth/save-test 또는 /ocr/save-test 에 맞춰 경로 수정 가능)
         async function saveTestData() {
             const subject = document.getElementById('subjectSelect').value;
             const quizText = document.getElementById('result-area').innerText;
+
+            if (!originalText) return alert("추출된 텍스트가 없습니다.");
 
             const payload = {
                 subject_name: subject,
@@ -211,41 +220,61 @@
                 answers: answerList
             };
 
-            const res = await fetch("http://127.0.0.1:8000/save-test", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            const data = await res.json();
-            alert(data.message);
+            try {
+                const res = await fetch("/ocr/save-test", { // 실제 라우터 경로로 수정
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                alert(data.message || "저장되었습니다.");
+            } catch (e) {
+                alert("저장 중 오류가 발생했습니다.");
+            }
         }
 
-        // 4. 백엔드 grade (채점) 연동
+        // 4. 채점 및 리워드 지급 연동 (백엔드 /quiz/grade 연동)
         async function submitGrade() {
             const inputs = document.querySelectorAll(".user-ans");
             const userAnswers = Array.from(inputs).map(i => i.value);
 
+            if (userAnswers.some(ans => ans.trim() === "")) {
+                return alert("모든 빈칸의 답을 입력해주세요!");
+            }
+
             const payload = {
-                quiz_id: 1, // 테스트용 임시 ID
                 user_answers: userAnswers,
                 correct_answers: answerList
             };
 
-            const res = await fetch("http://127.0.0.1:8000/grade", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
+            try {
+                const res = await fetch("/quiz/grade", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
 
-            if (res.status === 400) return alert("답안 개수가 맞지 않습니다!");
+                if (res.status === 401) {
+                    return alert("로그인이 필요합니다. 카카오 로그인을 먼저 진행해주세요.");
+                }
 
-            const data = await res.json();
+                const data = await res.json();
 
-            let message = `📊 결과: ${data.score}점 맞혔습니다!\n💰 획득 리워드: ${data.reward}P`;
-            if (data.is_all_correct) message += "\n\n✨ 완벽합니다! 리워드 2배 보너스 적용! ✨";
+                // 결과 알림창 구성
+                let message = `📊 결과: ${data.score}점 획득!\n`;
+                message += `💰 리워드: ${data.reward}P가 지급되었습니다.`;
 
-            alert(message);
-            console.log("상세 결과:", data.details);
+                if (data.is_all_correct) {
+                    message += "\n\n✨ ALL KILL! 모든 문제를 맞히셨습니다! ✨";
+                }
+
+                alert(message);
+
+                // 채점 후 정답 확인을 위해 입력창 색상 변경 등 추가 피드백 가능
+                console.log("상세 채점 결과:", data.details);
+            } catch (e) {
+                alert("채점 요청 중 오류가 발생했습니다.");
+            }
         }
     </script>
 

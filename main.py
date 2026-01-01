@@ -8,6 +8,8 @@ import os
 
 app = FastAPI()
 app.include_router(user_app.app)
+app.include_router(ocr_app.app)
+app.include_router(quiz_app.app)
 
 # 브라우저 통신 허용 (CORS)
 app.add_middleware(
