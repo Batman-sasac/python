@@ -31,14 +31,15 @@ async def login_page(session_user: Optional[str] = Cookie(None)):
     return content.replace("{{KAKAO_REST_API_KEY}}", str(rest_key))
 
 @app.get("/index", response_class=HTMLResponse)
-async def index_page(session_user: Optional[str] = Cookie(None)):
-    # 쿠키가 없으면 로그인 페이지로 튕겨냄 (접근 제어)
-    if not session_user:
+async def index_page(user_email: Optional[str] = Cookie(None)): # 변수명 확인!
+    print(f"현재 브라우저에서 넘어온 쿠키 값: {user_email}") # 서버 터미널에 출력됨
+    
+    if not user_email:
+        print("쿠키가 없어서 로그인 페이지로 튕깁니다.")
         return RedirectResponse(url="/")
     
     with open("templates/index.html", "r", encoding="utf-8") as f:
         return f.read()
-
 
 
 if __name__ == "__main__":
