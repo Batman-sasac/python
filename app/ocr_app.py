@@ -1,3 +1,5 @@
+# ocr 및 빈칸/원본 저장
+
 from fastapi import APIRouter, UploadFile, File, Cookie, Form, Body
 from pydantic import BaseModel
 from typing import List, Optional

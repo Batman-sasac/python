@@ -1,9 +1,11 @@
+# /, /home, /index
+
 from fastapi import FastAPI, Cookie, Request
 from typing import Optional
 import uvicorn
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app import ocr_app, quiz_app, user_app, notification_app, reward_app
+from app import ocr_app, quiz_app, user_app, notification_app, reward_app, weekly_app
 from app.reward_app import check_attendance_and_reward
 import os
 
@@ -18,6 +20,7 @@ app.include_router(ocr_app.app)
 app.include_router(quiz_app.app)
 app.include_router(notification_app.app)
 app.include_router(reward_app.app)
+app.include_router(weekly_app.app)
 
 # 브라우저 통신 허용 (CORS)
 app.add_middleware(
