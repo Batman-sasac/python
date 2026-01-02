@@ -19,7 +19,7 @@ async def check_attendance_and_reward(user_email: str):
         
         if cur.fetchone():
             # 이미 받은 경우, 현재 포인트만 조회해서 반환
-            cur.execute("SELECT point FROM users WHERE email = %s", (user_email,))
+            cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
             current_pt = cur.fetchone()[0]
             return False, current_pt
 
@@ -41,6 +41,55 @@ async def check_attendance_and_reward(user_email: str):
         conn.rollback()
         print(f"❌ 오류: {e}")
         return False, 0
+    finally:
+        cur.close()
+        conn.close()
+
+# 출석률*정답률에 따른 그래프 도출을 위한 데이터 
+@app.get("/stats/weekly-growth")
+async def get_weekly_growth(user_email: str = Cookie(None)):
+    if not user_email:
+        return {"error": "로그인이 필요합니다."}
+
+    conn = get_db()
+    cur = conn.cursor()
+    
+    try:
+        # 주별 정답률과 출석률을 곱해서 성장 점수(growth_score) 도출
+        cur.execute("""
+            SELECT 
+                quiz.week_start,
+                (quiz.avg_correct_rate * COALESCE(att.att_rate, 0)) * 100 AS growth_score
+            FROM (
+                SELECT 
+                    DATE_TRUNC('week', created_at) as week_start,
+                    SUM(correct_count)::float / NULLIF(SUM(total_count), 0) as avg_correct_rate
+                FROM quiz_results
+                WHERE user_email = %s
+                GROUP BY 1
+            ) quiz
+            LEFT JOIN (
+                SELECT 
+                    DATE_TRUNC('week', created_at) as week_start,
+                    COUNT(DISTINCT DATE(created_at)) / 7.0 as att_rate
+                FROM reward_history
+                WHERE user_email = %s AND reason = '출석체크'
+                GROUP BY 1
+            ) att ON quiz.week_start = att.week_start
+            ORDER BY quiz.week_start DESC
+            LIMIT 5;
+        """, (user_email, user_email))
+        
+        rows = cur.fetchall()
+        
+        # 그래프용 데이터 포맷팅
+        labels = [row[0].strftime("%m/%d") for row in reversed(rows)]
+        values = [round(row[1], 1) for row in reversed(rows)]
+        
+        return {
+            "labels": ["이번 주", "1주 전", "2주 전", "3주 전", "4주 전"],
+            "datasets": scores  # 이 부분이 바로 그래프를 그리는 '숫자들'입니다.
+        }
     finally:
         cur.close()
         conn.close()

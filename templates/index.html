@@ -3,107 +3,69 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>스마트 복습 시스템</title>
+    <title>스마트 복습 - 파일 업로드</title>
     <style>
-        :root {
-            --primary: #007bff;
-            --success: #28a745;
-            --warning: #ffc107;
-        }
-
-        body {
-            font-family: 'Pretendard', sans-serif;
+        .upload-box {
+            border: 2px dashed #007bff;
             padding: 30px;
-            background-color: #f4f7f6;
-            color: #333;
-        }
-
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
-        }
-
-        .header-section {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            background: #eee;
-            padding: 15px;
+            text-align: center;
             border-radius: 10px;
+            background: #f8f9fa;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        #image-preview {
+            max-width: 100%;
+            height: auto;
+            display: none;
+            margin-top: 15px;
+            border-radius: 5px;
         }
 
         .btn {
+            padding: 10px 20px;
             cursor: pointer;
             border: none;
-            padding: 12px 20px;
-            border-radius: 6px;
-            font-weight: 600;
-            transition: 0.2s;
+            border-radius: 5px;
+            font-weight: bold;
         }
 
         .btn-ocr {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-save {
-            background: #6c757d;
+            background: #007bff;
             color: white;
         }
 
         #result-area {
-            border: 2px solid #ddd;
-            border-radius: 10px;
+            border: 1px solid #ddd;
             padding: 20px;
-            min-height: 250px;
-            margin-top: 20px;
-            line-height: 1.8;
-            font-size: 1.1rem;
+            min-height: 150px;
             white-space: pre-wrap;
+            margin-top: 20px;
         }
 
         .blank-span {
             background: #fff3bf;
             border-bottom: 2px solid #f08c00;
-            padding: 0 5px;
-            color: #e67e22;
+            padding: 0 4px;
+        }
+
+        /* 문장 내 입력창 스타일 */
+        .quiz-input {
+            border: none;
+            border-bottom: 2px solid #007bff;
+            background-color: #fff3bf;
+            width: 80px;
+            text-align: center;
+            font-size: 1rem;
             font-weight: bold;
+            margin: 0 5px;
+            outline: none;
         }
 
-        /* 채점 영역 스타일 */
-        .quiz-section {
-            margin-top: 30px;
-            border-top: 2px dashed #ccc;
-            padding-top: 20px;
-            display: none;
-        }
-
-        .input-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-left: 5px solid var(--primary);
-            margin-bottom: 10px;
-        }
-
-        .user-input {
-            padding: 8px;
-            width: 200px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            margin-left: 10px;
-        }
-
-        .btn-grade {
-            background: var(--success);
-            color: white;
-            width: 100%;
-            margin-top: 20px;
-            font-size: 1.1rem;
+        .quiz-input:focus {
+            background-color: #ffe066;
+            border-bottom-color: #f08c00;
         }
     </style>
 </head>
@@ -111,169 +73,161 @@
 <body>
 
     <div class="container">
-        <h1>📝 과목별 복습 노트 생성기</h1>
+        <h2>📸 학습 이미지 업로드</h2>
+
+        <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+            <p>클릭하여 이미지를 업로드하거나 파일을 드래그하세요.</p>
+            <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="previewImage(this)">
+            <img id="image-preview" alt="미리보기">
+        </div>
 
         <div class="header-section">
-            <select id="subjectSelect" style="padding: 10px; border-radius: 5px;">
+            <select id="subjectSelect">
                 <option value="국어">국어</option>
                 <option value="영어">영어</option>
                 <option value="수학">수학</option>
-                <option value="과학">과학</option>
             </select>
-            <input type="file" id="fileInput">
-            <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출</button>
+            <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
         </div>
 
-        <div id="work-area">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <strong>[ 추출 결과 ]</strong>
-                <div>
-                    <button class="btn btn-warning" onclick="makeBlank()" style="background: var(--warning);">빈칸
-                        생성</button>
-                    <button class="btn btn-save" onclick="saveTestData()">데이터 저장 테스트</button>
-                </div>
-            </div>
-            <div id="result-area">파일을 업로드하고 텍스트를 추출하세요.</div>
-            <p id="status" style="color: blue; font-size: 0.9rem;"></p>
-        </div>
+        <div id="result-area">텍스트가 추출되면 이곳에 표시됩니다.</div>
 
-        <div id="quiz-section" class="quiz-section">
-            <h2>🎯 실시간 채점 모드</h2>
-            <div id="input-list"></div>
-            <button class="btn btn-grade" onclick="submitGrade()">답안 제출 및 리워드 확인</button>
+        <div style="margin-top: 15px;">
+            <button class="btn" style="background: #ffc107;" onclick="makeBlank()">빈칸 생성</button>
+            <button class="btn" style="background: #28a745; color: white;" onclick="saveAndStartLearning()">학습 시작 (DB
+                저장)</button>
         </div>
     </div>
 
     <script>
-        let originalText = "";
-        let answerList = []; // 정답 배열
 
-        // 1. OCR 시작 (백엔드 /ocr 엔드포인트와 연결)
+        // [중요] 변수를 전역 공간에 선언하고 초기화합니다.
+        let originalText = "";
+        let answerList = [];
+        let currentQuizId = null;
+        let tempCorrectAnswers = [];
+
+        // 파일 미리보기 기능
+        function previewImage(input) {
+            const preview = document.getElementById('image-preview');
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        // 1. OCR 텍스트 추출
         async function startOCR() {
             const fileInput = document.getElementById('fileInput');
-            if (!fileInput.files[0]) return alert("파일을 선택하세요!");
+            if (!fileInput.files[0]) return alert("파일을 먼저 선택해주세요!");
 
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
 
-            document.getElementById('status').innerText = "텍스트 추출 및 분석 중...";
+            document.getElementById('result-area').innerText = "OCR 분석 중...";
+
+            // 새로운 파일을 올리면 이전 정답 리스트 초기화
+            answerList = [];
 
             try {
-                // fetch 주소에서 http://127.0.0.1:8000/ 부분을 /ocr 로 상대경로 처리하면 더 안정적입니다.
                 const res = await fetch("/ocr", { method: "POST", body: formData });
                 const data = await res.json();
-
                 if (data.status === "success") {
                     originalText = data.text;
                     document.getElementById('result-area').innerText = data.text;
-                    document.getElementById('status').innerText = "분석 완료! 빈칸을 만들 단어를 드래그하세요.";
-                    answerList = [];
-                    document.getElementById('input-list').innerHTML = ""; // 이전 입력창 비우기
-                    document.getElementById('quiz-section').style.display = 'none';
+                    alert("추출 성공! 빈칸으로 만들 단어를 드래그하고 [빈칸 생성]을 누르세요.");
                 }
             } catch (e) {
-                console.error(e);
-                alert("OCR 추출에 실패했습니다. 서버 연결을 확인하세요.");
+                alert("서버 연결 실패");
             }
         }
 
-        // 2. 드래그 빈칸 생성 (번호 매기기 및 입력창 추가)
+        // 2. 빈칸 생성 로직 (수정됨)
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
 
-            if (selectedText) {
-                answerList.push(selectedText); // 정답 리스트에 추가
+            if (!selectedText) {
+                return alert("빈칸으로 만들 단어를 마우스로 드래그하세요!");
+            }
 
+            // 정답 리스트에 추가
+            answerList.push(selectedText);
+
+            try {
                 const range = selection.getRangeAt(0);
                 const span = document.createElement("span");
                 span.className = "blank-span";
-                span.innerText = `(${answerList.length})`;
+                span.innerText = `(${answerList.length})`; // (1), (2) 번호 표시
 
                 range.deleteContents();
                 range.insertNode(span);
 
-                // 하단 채점 영역 활성화 및 입력창 추가
-                document.getElementById('quiz-section').style.display = 'block';
-                const inputList = document.getElementById('input-list');
-                const div = document.createElement('div');
-                div.className = 'input-card';
-                div.innerHTML = `<strong>(${answerList.length})번 문제:</strong> 
-                                 <input type="text" class="user-ans" placeholder="정답 입력">`;
-                inputList.appendChild(div);
-
+                // 드래그 해제
                 selection.removeAllRanges();
+            } catch (err) {
+                console.error("범위 선택 오류:", err);
+                alert("텍스트 영역 내에서만 선택해 주세요.");
             }
         }
 
-        // 3. 데이터 저장 (백엔드 /auth/save-test 또는 /ocr/save-test 에 맞춰 경로 수정 가능)
-        async function saveTestData() {
-            const subject = document.getElementById('subjectSelect').value;
-            const quizText = document.getElementById('result-area').innerText;
+        // 3. 학습 시작 클릭 시 (DB 저장)
+        async function saveAndStartLearning() {
+            if (answerList.length === 0) return alert("빈칸을 하나 이상 만들어주세요!");
 
-            if (!originalText) return alert("추출된 텍스트가 없습니다.");
+            tempCorrectAnswers = [...answerList];
 
             const payload = {
-                subject_name: subject,
+                subject_name: document.getElementById('subjectSelect').value,
                 original: originalText,
-                quiz: quizText,
-                answers: answerList
+                quiz: document.getElementById('result-area').innerText,
+                answers: []
             };
 
-            try {
-                const res = await fetch("/ocr/save-test", { // 실제 라우터 경로로 수정
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
+            const res = await fetch("/ocr/save-test", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            if (data.status === "success") {
+                currentQuizId = data.quiz_id;
+
+                const blankSpans = document.querySelectorAll('.blank-span');
+                blankSpans.forEach((span, index) => {
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'quiz-input';
+                    input.placeholder = `(${index + 1})`;
+                    span.parentNode.replaceChild(input, span);
                 });
-                const data = await res.json();
-                alert(data.message || "저장되었습니다.");
-            } catch (e) {
-                alert("저장 중 오류가 발생했습니다.");
+                alert("저장 완료! 빈칸에 답을 입력하고 제출하세요.");
             }
         }
 
-        // 4. 채점 및 리워드 지급 연동 (백엔드 /quiz/grade 연동)
+        // 4. 답안 제출
         async function submitGrade() {
-            const inputs = document.querySelectorAll(".user-ans");
+            const inputs = document.querySelectorAll(".quiz-input");
             const userAnswers = Array.from(inputs).map(i => i.value);
 
-            if (userAnswers.some(ans => ans.trim() === "")) {
-                return alert("모든 빈칸의 답을 입력해주세요!");
-            }
+            const res = await fetch("/quiz/grade", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    quiz_id: currentQuizId,
+                    user_answers: userAnswers,
+                    correct_answers: tempCorrectAnswers
+                })
+            });
 
-            const payload = {
-                user_answers: userAnswers,
-                correct_answers: answerList
-            };
-
-            try {
-                const res = await fetch("/quiz/grade", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-
-                if (res.status === 401) {
-                    return alert("로그인이 필요합니다. 카카오 로그인을 먼저 진행해주세요.");
-                }
-
-                const data = await res.json();
-
-                // 결과 알림창 구성
-                let message = `📊 결과: ${data.score}점 획득!\n`;
-                message += `💰 리워드: ${data.reward}P가 지급되었습니다.`;
-
-                if (data.is_all_correct) {
-                    message += "\n\n✨ ALL KILL! 모든 문제를 맞히셨습니다! ✨";
-                }
-
-                alert(message);
-
-                // 채점 후 정답 확인을 위해 입력창 색상 변경 등 추가 피드백 가능
-                console.log("상세 채점 결과:", data.details);
-            } catch (e) {
-                alert("채점 요청 중 오류가 발생했습니다.");
+            const result = await res.json();
+            if (result.status === "success") {
+                alert(`제출 및 저장 완료! 점수: ${result.score}/${result.total}`);
             }
         }
     </script>

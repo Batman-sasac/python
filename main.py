@@ -85,6 +85,14 @@ async def index_page(user_email: str = Cookie(None)):
         content = content.replace("</body>", f"<script>alert('오늘의 출석 보상 1P가 지급되었습니다! (총 {total_points}P)');</script></body>")
     return content
 
+@app.get("/home", response_class=HTMLResponse)
+async def index_page(): 
+
+    
+    
+    with open("templates/home.html", "r", encoding="utf-8") as f:
+        return f.read()
+
 if __name__ == "__main__":
     host = "127.0.0.1"
     port = 8000

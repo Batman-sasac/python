@@ -16,7 +16,7 @@ class QuizSaveRequest(BaseModel):
     subject_name: str
     original: str
     quiz: str
-    answers: List[str]
+    answers: Optional[List[str]] = []
 
 # 1. OCR 텍스트 추출 엔드포인트
 @app.post("/ocr")
@@ -29,35 +29,21 @@ async def run_ocr_endpoint(file: UploadFile = File(...)):
         return {"status": "error", "message": str(e)}
 
 # 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식)
-@app.post("/save-test")
-async def save_test(
-    data: QuizSaveRequest, 
-    user_email: Optional[str] = Cookie(None)
-):
+@app.post("/ocr/save-test")
+async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(None)):
     conn = get_db()
-    if not conn:
-        return {"status": "error", "message": "데이터베이스 연결 실패"}
-    
     cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO ocr_data (user_email, subject_name, ocr_text, blank_text) 
-            VALUES (%s, %s, %s, %s)
-        """, (user_email, data.subject_name, data.original, data.quiz))
-        
+            INSERT INTO ocr_data (user_email, subject_name, ocr_text, blank_text, answers) 
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (user_email, data.subject_name, data.original, data.quiz, data.answers))
+        new_id = cur.fetchone()[0]
         conn.commit()
-
-        print("\n" + "="*50)
-        print(f"📧 사용자: {user_email}")
-        print(f"📂 과목명: {data.subject_name}")
-        print(f"📝 원본 길이: {len(data.original)}자")
-        print("="*50 + "\n")
-
-        return {"status": "success", "message": "OCR 자료가 DB에 저장되었습니다."}
+        return {"status": "success", "quiz_id": new_id}
     except Exception as e:
-        if conn: conn.rollback()
-        print(f"❌ 저장 에러: {e}")
-        return {"status": "error", "message": "데이터 저장 실패"}
+        conn.rollback()
+        return {"status": "error", "message": str(e)}
     finally:
         cur.close()
         conn.close()
