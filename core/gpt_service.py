@@ -11,8 +11,7 @@ class GPTService:
     def __init__(self, api_key=None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.client = OpenAI(api_key=self.api_key)
-        # 밑줄 인식을 위해 반드시 gpt-4o (유료 모델) 권장
-        self.model = "gpt-4o-mini" 
+        self.model = "gpt-4o" 
 
     def process_file(self, file_bytes, filename):
         ext = filename.split('.')[-1].lower()
@@ -41,6 +40,7 @@ class GPTService:
 
     def extract_text_from_image(self, base64_image):
         try:
+            base64_image = f"data:image/jpeg;base64,{base64_image}"
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -57,13 +57,16 @@ class GPTService:
                             },
                             {
                                 "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                                "image_url": {"url": base64_image,
+                                "detail": "high"}
                             }
                         ],
                     }
                 ],
-                temperature=0 # 정확도를 위해 0으로 고정
+                temperature=0, # 정확도를 위해 0으로 고정
+                max_tokens=4096
             )
             return response.choices[0].message.content
         except Exception as e:
+            print(f"OpenAI API 상세 에러: {e}")
             return f"오류 발생: {str(e)}"
