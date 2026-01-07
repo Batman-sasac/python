@@ -2,25 +2,29 @@
 <html lang="ko">
 
 <head>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <meta charset="UTF-8">
-    <title>스마트 복습 - 파일 업로드</title>
+    <title>스마트 복습 - OCR</title>
     <style>
         .upload-box {
             border: 2px dashed #007bff;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
             border-radius: 10px;
-            background: #f8f9fa;
             cursor: pointer;
-            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
+        /* 이미지 크기 조절 */
         #image-preview {
-            max-width: 100%;
-            height: auto;
             display: none;
-            margin-top: 15px;
-            border-radius: 5px;
+            margin: 15px auto;
+            max-width: 300px;
+            max-height: 400px;
+            border-radius: 8px;
+            object-fit: contain;
         }
 
         .btn {
@@ -29,6 +33,7 @@
             border: none;
             border-radius: 5px;
             font-weight: bold;
+            margin: 5px;
         }
 
         .btn-ocr {
@@ -36,118 +41,133 @@
             color: white;
         }
 
+        /* 결과 영역 및 강조 스타일 */
         #result-area {
             border: 1px solid #ddd;
             padding: 20px;
-            min-height: 150px;
-            white-space: pre-wrap;
+            min-height: 200px;
             margin-top: 20px;
+            background: white;
+            line-height: 1.8;
+        }
+
+        /* 1. 강조된 단어 (strong) 디자인: 우선순위를 극대화함 */
+        #result-area strong {
+            color: #000 !important;
+            font-weight: 900 !important;
+            background-color: #f0db72 !important;
+            /* 형광펜 노란색 */
+            padding: 2px 4px !important;
+            margin: 0 1px !important;
+            border-radius: 4px !important;
+            display: inline-block !important;
+            /* 배경색이 더 잘 보이도록 설정 */
+            line-height: 1.2 !important;
+            text-shadow: none !important;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+            /* 살짝 입체감 추가 */
+        }
+
+        /* 2. 표(Table) 내부의 strong 태그도 동일하게 적용 */
+        #result-area table strong {
+            background-color: #f0db72 !important;
+            display: inline !important;
+            /* 표 안에서는 줄바꿈 방지를 위해 inline 유지 */
+        }
+
+        /* 표 디자인 */
+        #result-area table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        #result-area th,
+        #result-area td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: left;
+        }
+
+        #result-area th {
+            background-color: #f2f2f2;
         }
 
         .blank-span {
             background: #fff3bf;
             border-bottom: 2px solid #f08c00;
             padding: 0 4px;
+            font-weight: bold;
         }
 
         .quiz-input {
             border: none;
             border-bottom: 2px solid #007bff;
-            background-color: #fff3bf;
+            background: #fff3bf;
             width: 80px;
             text-align: center;
-            font-size: 1rem;
             font-weight: bold;
-            margin: 0 5px;
-            outline: none;
-        }
-
-        .quiz-input:focus {
-            background-color: #ffe066;
-            border-bottom-color: #f08c00;
         }
     </style>
 </head>
 
 <body>
-
     <div class="container">
         <h2>📸 학습 이미지 업로드</h2>
-
         <div class="upload-box" onclick="document.getElementById('fileInput').click()">
-            <p>클릭하여 이미지를 업로드하거나 파일을 드래그하세요.</p>
+            <p>클릭하여 이미지를 업로드하세요.</p>
             <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="previewImage(this)">
             <img id="image-preview" alt="미리보기">
         </div>
 
-        <div class="header-section">
-            <select id="subjectSelect">
-                <option value="국어">국어</option>
-                <option value="영어">영어</option>
-                <option value="수학">수학</option>
-            </select>
-            <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
-        </div>
-
+        <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
         <div id="result-area">텍스트가 추출되면 이곳에 표시됩니다.</div>
 
         <div style="margin-top: 15px;">
             <button class="btn" style="background: #ffc107;" onclick="makeBlank()">빈칸 생성</button>
-            <button class="btn" style="background: #28a745; color: white;" onclick="saveAndStartLearning()">학습 시작 (DB
-                저장)</button>
-        </div>
-
-        <div id="submit-section"
-            style="display: none; margin-top: 30px; text-align: center; border-top: 2px dashed #ddd; padding-top: 20px;">
-            <p style="color: #666;">문장 속 빈칸에 답을 모두 입력한 후 아래 버튼을 누르세요.</p>
-            <button class="btn" style="background: #007bff; color: white; width: 100%; font-size: 1.1rem;"
-                onclick="submitGrade()">답안 제출 및 채점</button>
+            <button class="btn" style="background: #28a745; color: white;" onclick="saveAndStartLearning()">학습
+                시작</button>
         </div>
     </div>
 
     <script>
         let originalText = "";
         let answerList = [];
-        let currentQuizId = null;
-        let tempCorrectAnswers = [];
 
-        // 파일 미리보기 기능
         function previewImage(input) {
             const preview = document.getElementById('image-preview');
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                reader.onload = (e) => {
-                    preview.src = e.target.result;
-                    preview.style.display = 'block'; // 이미지 보이기
-                };
+                reader.onload = (e) => { preview.src = e.target.result; preview.style.display = 'block'; };
                 reader.readAsDataURL(input.files[0]);
             }
         }
 
-        // 1. OCR 텍스트 추출
         async function startOCR() {
             const fileInput = document.getElementById('fileInput');
-            if (!fileInput.files[0]) return alert("파일을 먼저 선택해주세요!");
+            if (!fileInput.files[0]) return alert("파일을 선택하세요!");
 
             const formData = new FormData();
             formData.append("file", fileInput.files[0]);
-            document.getElementById('result-area').innerText = "OCR 분석 중...";
-            answerList = [];
+
+            const resultArea = document.getElementById('result-area');
+            resultArea.innerText = "분석 중........:)";
 
             try {
                 const res = await fetch("/ocr", { method: "POST", body: formData });
                 const data = await res.json();
+
                 if (data.status === "success") {
                     originalText = data.text;
-                    document.getElementById('result-area').innerText = data.text;
-                    alert("추출 성공! 단어를 드래그하고 [빈칸 생성]을 누르세요.");
+                    // 중요: marked.parse로 변환하고 innerHTML로 넣어야 볼드가 적용됨
+                    resultArea.innerHTML = marked.parse(data.text);
+                    console.log("추출된 텍스트:", data.text);
                 }
             } catch (e) {
-                alert("서버 연결 실패");
+                alert("오류 발생");
             }
         }
 
-        // 2. 빈칸 생성 로직
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
@@ -165,77 +185,8 @@
 
         async function saveAndStartLearning() {
             if (answerList.length === 0) return alert("빈칸을 만들어주세요!");
-            tempCorrectAnswers = [...answerList];
-
-            const payload = {
-                subject_name: document.getElementById('subjectSelect').value,
-                original: originalText,
-                quiz: document.getElementById('result-area').innerText,
-                answers: []
-            };
-
-            try {
-                const res = await fetch("/ocr/save-test", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await res.json();
-
-                if (data.status === "success") {
-                    currentQuizId = data.quiz_id;
-
-                    // 1. 빈칸을 입력창으로 교체
-                    const blankSpans = document.querySelectorAll('.blank-span');
-                    blankSpans.forEach((span, index) => {
-                        const input = document.createElement('input');
-                        input.type = 'text';
-                        input.className = 'quiz-input';
-                        input.placeholder = `(${index + 1})`;
-                        span.parentNode.replaceChild(input, span);
-                    });
-
-                    // 2. [가장 중요] 숨겨진 제출 버튼 영역을 강제로 보여줌
-                    const submitSection = document.getElementById('submit-section');
-                    submitSection.style.setProperty('display', 'block', 'important');
-
-                    // 3. 알림창 표시
-                    alert("저장 완료! 빈칸에 답을 입력하고 하단의 제출 버튼을 누르세요.");
-
-                    // 4. 버튼 위치로 자동 스크롤
-                    submitSection.scrollIntoView({ behavior: 'smooth' });
-                } else {
-                    alert("저장 실패: " + data.message);
-                }
-            } catch (e) {
-                console.error(e);
-                alert("서버 연결 중 오류가 발생했습니다.");
-            }
-        }
-
-        // 4. 답안 제출 및 채점
-        async function submitGrade() {
-            const inputs = document.querySelectorAll(".quiz-input");
-            const userAnswers = Array.from(inputs).map(i => i.value);
-
-            try {
-                const res = await fetch("/quiz/grade", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        quiz_id: currentQuizId,
-                        user_answers: userAnswers,
-                        correct_answers: tempCorrectAnswers
-                    })
-                });
-                const result = await res.json();
-                if (result.status === "success") {
-                    alert(`채점 완료! 점수: ${result.score}/${result.total}`);
-                }
-            } catch (e) {
-                alert("채점 중 오류 발생");
-            }
+            // 이후 저장 로직...
+            alert("학습 준비 완료!");
         }
     </script>
 </body>
