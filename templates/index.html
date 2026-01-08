@@ -17,7 +17,6 @@
             align-items: center;
         }
 
-        /* 이미지 크기 조절 */
         #image-preview {
             display: none;
             margin: 15px auto;
@@ -41,7 +40,6 @@
             color: white;
         }
 
-        /* 결과 영역 및 강조 스타일 */
         #result-area {
             border: 1px solid #ddd;
             padding: 20px;
@@ -49,48 +47,16 @@
             margin-top: 20px;
             background: white;
             line-height: 1.8;
+            white-space: pre-wrap;
+            /* 줄바꿈 유지 */
         }
 
-        /* 1. 강조된 단어 (strong) 디자인: 우선순위를 극대화함 */
         #result-area strong {
             color: #000 !important;
             font-weight: 900 !important;
             background-color: #f0db72 !important;
-            /* 형광펜 노란색 */
             padding: 2px 4px !important;
-            margin: 0 1px !important;
             border-radius: 4px !important;
-            display: inline-block !important;
-            /* 배경색이 더 잘 보이도록 설정 */
-            line-height: 1.2 !important;
-            text-shadow: none !important;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-            /* 살짝 입체감 추가 */
-        }
-
-        /* 2. 표(Table) 내부의 strong 태그도 동일하게 적용 */
-        #result-area table strong {
-            background-color: #f0db72 !important;
-            display: inline !important;
-            /* 표 안에서는 줄바꿈 방지를 위해 inline 유지 */
-        }
-
-        /* 표 디자인 */
-        #result-area table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-        }
-
-        #result-area th,
-        #result-area td {
-            border: 1px solid #ccc;
-            padding: 10px;
-            text-align: left;
-        }
-
-        #result-area th {
-            background-color: #f2f2f2;
         }
 
         .blank-span {
@@ -98,15 +64,31 @@
             border-bottom: 2px solid #f08c00;
             padding: 0 4px;
             font-weight: bold;
+            color: #f08c00;
         }
 
+        /* 퀴즈 입력창 스타일 */
         .quiz-input {
             border: none;
             border-bottom: 2px solid #007bff;
-            background: #fff3bf;
-            width: 80px;
+            background: #e7f1ff;
+            width: 100px;
             text-align: center;
             font-weight: bold;
+            margin: 0 5px;
+            padding: 2px;
+        }
+
+        .correct {
+            background-color: #d4edda !important;
+            color: #155724 !important;
+            border-bottom-color: #28a745 !important;
+        }
+
+        .wrong {
+            background-color: #f8d7da !important;
+            color: #721c24 !important;
+            border-bottom-color: #dc3545 !important;
         }
     </style>
 </head>
@@ -123,16 +105,16 @@
         <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
         <div id="result-area">텍스트가 추출되면 이곳에 표시됩니다.</div>
 
-        <div style="margin-top: 15px;">
+        <div id="control-buttons" style="margin-top: 15px;">
             <button class="btn" style="background: #ffc107;" onclick="makeBlank()">빈칸 생성</button>
-            <button class="btn" style="background: #28a745; color: white;" onclick="saveAndStartLearning()">학습
-                시작</button>
+            <button class="btn" id="study-btn" style="background: #28a745; color: white;"
+                onclick="saveAndStartLearning()">학습 시작</button>
         </div>
     </div>
 
     <script>
         let originalText = "";
-        let answerList = [];
+        let answerList = []; // 정답을 순서대로 저장할 배열
 
         function previewImage(input) {
             const preview = document.getElementById('image-preview');
@@ -151,45 +133,107 @@
             formData.append("file", fileInput.files[0]);
 
             const resultArea = document.getElementById('result-area');
-            // 로딩 애니메이션이나 메시지 개선
-            resultArea.innerHTML = "<div style='color: #007bff; font-weight: bold;'>🔍 이미지를 읽고 핵심 용어를 분석 중입니다...</div>";
+            resultArea.innerHTML = "🔍 파일 분석 중...";
+            answerList = []; // 리스트 초기화
 
             try {
                 const res = await fetch("/ocr", { method: "POST", body: formData });
                 const data = await res.json();
 
                 if (data.status === "success") {
-                    originalText = data.text;
-                    // Markdown을 HTML로 변환하여 볼드체 및 표 등을 렌더링
-                    resultArea.innerHTML = marked.parse(data.text);
-                    console.log("분석 완료");
+                    let rawContent = data.original_text;
+                    const keywords = data.keywords || [];
+
+                    if (keywords.length > 0) {
+                        const sortedKeywords = keywords
+                            .filter(w => w.trim().length >= 2)
+                            .sort((a, b) => b.length - a.length);
+
+                        if (sortedKeywords.length > 0) {
+                            const escaped = sortedKeywords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                            const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
+                            rawContent = rawContent.replace(pattern, '<strong>$1</strong>');
+                        }
+                    }
+
+                    resultArea.innerHTML = rawContent;
+                    originalText = data.original_text;
                 } else {
-                    resultArea.innerText = "분석 실패: " + (data.message || "알 수 없는 오류");
+                    resultArea.innerText = "에러: " + data.message;
                 }
             } catch (e) {
-                console.error("OCR 에러:", e);
-                resultArea.innerText = "서버와 연결할 수 없습니다.";
+                resultArea.innerText = "서버 연결 실패";
             }
         }
+
+        // 빈칸 생성 함수
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
             if (!selectedText) return alert("단어를 드래그하세요!");
 
-            answerList.push(selectedText);
+            answerList.push(selectedText); // 정답 저장
             const range = selection.getRangeAt(0);
+
             const span = document.createElement("span");
             span.className = "blank-span";
-            span.innerText = `(${answerList.length})`;
+            span.dataset.answer = selectedText; // 정답을 데이터 속성에 숨김
+            span.innerText = `(${answerList.length})`; // (1), (2) 형태로 표시
+
             range.deleteContents();
             range.insertNode(span);
             selection.removeAllRanges();
         }
 
-        async function saveAndStartLearning() {
-            if (answerList.length === 0) return alert("빈칸을 만들어주세요!");
-            // 이후 저장 로직...
-            alert("학습 준비 완료!");
+        // 학습 시작 함수: span을 input으로 교체
+        function saveAndStartLearning() {
+            const blanks = document.querySelectorAll('.blank-span');
+            if (blanks.length === 0) return alert("빈칸을 먼저 만들어주세요!");
+
+            blanks.forEach((span, index) => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'quiz-input';
+                input.dataset.correctAnswer = span.dataset.answer; // 정답 매칭용
+                input.placeholder = `(${index + 1})`;
+
+                span.parentNode.replaceChild(input, span);
+            });
+
+            // 버튼 변경
+            const studyBtn = document.getElementById('study-btn');
+            studyBtn.innerText = "채점하기";
+            studyBtn.onclick = checkAnswers;
+            studyBtn.style.background = "#17a2b8";
+        }
+
+        // 채점 함수
+        function checkAnswers() {
+            const inputs = document.querySelectorAll('.quiz-input');
+            let score = 0;
+
+            inputs.forEach(input => {
+                const userAnswer = input.value.trim();
+                const correctAnswer = input.dataset.correctAnswer;
+
+                if (userAnswer === correctAnswer) {
+                    input.classList.remove('wrong');
+                    input.classList.add('correct');
+                    score++;
+                } else {
+                    input.classList.remove('correct');
+                    input.classList.add('wrong');
+                    input.value = `${userAnswer} (정답: ${correctAnswer})`; // 오답 시 정답 표시
+                }
+                input.disabled = true; // 입력 불가 처리
+            });
+
+            alert(`채점 완료! 총 ${inputs.length}개 중 ${score}개 맞혔습니다.`);
+
+            // 다시 학습하기 버튼으로 변경
+            const studyBtn = document.getElementById('study-btn');
+            studyBtn.innerText = "새로고침하여 다시하기";
+            studyBtn.onclick = () => location.reload();
         }
     </script>
 </body>

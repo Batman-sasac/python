@@ -6,6 +6,7 @@ from typing import Optional
 
 app = APIRouter(tags=["Reward"])
 
+# 출석체크 리워드 제공 로직
 async def check_attendance_and_reward(user_email: str):
     if not user_email: return False, 0
     
@@ -24,9 +25,9 @@ async def check_attendance_and_reward(user_email: str):
             return False, current_pt
 
         # 2. 리워드 지급 및 포인트 합산
-        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, 1, '출석체크')", (user_email,))
+        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, 10, '출석체크')", (user_email,))
         
-        # ⚠️ 주의: DB 컬럼명이 point인지 points인지 꼭 확인하세요!
+
         cur.execute("UPDATE users SET points = points + 1 WHERE email = %s", (user_email,))
         
         # 3. 업데이트 된 최종 포인트 조회

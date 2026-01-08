@@ -4,14 +4,16 @@ from fastapi import APIRouter, UploadFile, File, Cookie, Form, Body
 from pydantic import BaseModel
 from typing import List, Optional
 import os
-from core.gpt_service import GPTService
+# from core.gpt_service import GPTService
 from database import get_db  
+from core.clova_ocr_service import CLOVAOCRService
 
 app = APIRouter(tags=["OCR"])
 
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
-gpt_service = GPTService(API_KEY)
+clova_service = CLOVAOCRService(API_KEY)
+
 
 # JSON 요청을 위한 모델
 class QuizSaveRequest(BaseModel):
@@ -20,15 +22,25 @@ class QuizSaveRequest(BaseModel):
     quiz: str
     answers: Optional[List[str]] = []
 
-# 1. OCR 텍스트 추출 엔드포인트
+# 1. OCR 텍스트 추출 엔드포인트 수정
 @app.post("/ocr")
 async def run_ocr_endpoint(file: UploadFile = File(...)):
     try:
         file_bytes = await file.read()
-        extracted_text = gpt_service.process_file(file_bytes, file.filename)
-        return {"status": "success", "text": extracted_text}
+
+        # 1. 네이버 OCR로 텍스트 추출
+        result = clova_service.process_file(file_bytes, file.filename)
+        
+        if result["status"] == "error":
+            return result
+
+        # 2. 프론트엔드 JS가 data.keywords를 사용하므로 키 이름을 일치시켜 반환
+        return result
+    
     except Exception as e:
+        print(f"서버 내부 에러: {e}")
         return {"status": "error", "message": str(e)}
+
 
 # 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식)
 @app.post("/ocr/save-test")

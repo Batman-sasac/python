@@ -14,6 +14,7 @@ class QuizSubmitRequest(BaseModel):
     user_answers: List[str]
     correct_answers: List[str]
 
+# 채점 로직
 @app.post("/grade")
 async def grade_quiz(
     payload: dict = Body(...),
@@ -50,7 +51,7 @@ async def grade_quiz(
     is_all_correct = (correct_count == total_questions and total_questions > 0)
     
     if is_all_correct:
-        reward = 30  # 다 맞추면 보너스 포함 30점
+        reward = 20  
 
     # 4. DB 저장
     conn = get_db()
@@ -78,11 +79,6 @@ async def grade_quiz(
             WHERE id = %s AND user_email = %s
         """, (user_ans, quiz_id, user_email))
 
-        # 채점하기를 누르면 학습횟수가 1회 인정 
-        cur.execute("""
-            INSERT INTO study_logs (user_email, quiz_id) 
-            VALUES (%s, %s)
-        """, (user_email, quiz_id))
 
         conn.commit()
 
