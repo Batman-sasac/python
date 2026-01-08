@@ -151,7 +151,8 @@
             formData.append("file", fileInput.files[0]);
 
             const resultArea = document.getElementById('result-area');
-            resultArea.innerText = "분석 중........:)";
+            // 로딩 애니메이션이나 메시지 개선
+            resultArea.innerHTML = "<div style='color: #007bff; font-weight: bold;'>🔍 이미지를 읽고 핵심 용어를 분석 중입니다...</div>";
 
             try {
                 const res = await fetch("/ocr", { method: "POST", body: formData });
@@ -159,15 +160,17 @@
 
                 if (data.status === "success") {
                     originalText = data.text;
-                    // 중요: marked.parse로 변환하고 innerHTML로 넣어야 볼드가 적용됨
+                    // Markdown을 HTML로 변환하여 볼드체 및 표 등을 렌더링
                     resultArea.innerHTML = marked.parse(data.text);
-                    console.log("추출된 텍스트:", data.text);
+                    console.log("분석 완료");
+                } else {
+                    resultArea.innerText = "분석 실패: " + (data.message || "알 수 없는 오류");
                 }
             } catch (e) {
-                alert("오류 발생");
+                console.error("OCR 에러:", e);
+                resultArea.innerText = "서버와 연결할 수 없습니다.";
             }
         }
-
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();

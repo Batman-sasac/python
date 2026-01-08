@@ -78,6 +78,12 @@ async def grade_quiz(
             WHERE id = %s AND user_email = %s
         """, (user_ans, quiz_id, user_email))
 
+        # 채점하기를 누르면 학습횟수가 1회 인정 
+        cur.execute("""
+            INSERT INTO study_logs (user_email, quiz_id) 
+            VALUES (%s, %s)
+        """, (user_email, quiz_id))
+
         conn.commit()
 
         # 터미널 로그 출력
