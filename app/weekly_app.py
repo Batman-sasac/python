@@ -7,7 +7,7 @@ import psycopg2
 import os
 from database import get_db
 
-app = APIRouter(prefix="/weekly", tags=["Weekly"])
+app = APIRouter(prefix="/cycle", tags=["Weekly"])
 
 
 # 출석률*정답률에 따른 그래프 도출을 위한 데이터 

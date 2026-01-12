@@ -80,7 +80,7 @@
         async function loadGrowthData() {
             try {
                 // 이전에 만든 백엔드 엔드포인트 호출
-                const response = await fetch('/weekly/stats/weekly-growth');
+                const response = await fetch('/cycle/stats/weekly-growth');
                 const result = await response.json();
 
                 if (result.data) {
