@@ -54,6 +54,16 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
         """, (user_email, data.subject_name, data.original, data.quiz, data.answers))
         new_id = cur.fetchone()[0]
         conn.commit()
+
+        print("\n" + "✅"*10 + " OCR 데이터 저장 성공 " + "✅"*10)
+        print(f"ID      : {new_id}")
+        print(f"사용자  : {user_email}")
+        print(f"과목명  : {data.subject_name}")
+        print(f"키워드수: {len(data.answers)}개")
+        print(f"🔹 원본 내용 미리보기: {data.original}")
+        print("="*45 + "\n")
+        
+
         return {"status": "success", "quiz_id": new_id}
     except Exception as e:
         conn.rollback()

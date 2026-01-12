@@ -6,7 +6,7 @@ from typing import List, Optional
 from database import get_db
 import json
 
-app = APIRouter(prefix="/quiz", tags=["Quiz"])
+app = APIRouter(prefix="/study", tags=["study"])
 
 # 퀴즈 제출 모델
 class QuizSubmitRequest(BaseModel):
@@ -48,10 +48,7 @@ async def grade_quiz(
     
     # 3. 리워드 계산
     reward = score  # 기본 1점씩
-    is_all_correct = (correct_count == total_questions and total_questions > 0)
     
-    if is_all_correct:
-        reward = 20  
 
     # 4. DB 저장
     conn = get_db()
@@ -75,7 +72,7 @@ async def grade_quiz(
         # 리스트 형태이므로 json.dumps로 문자열화하여 저장하는 것이 안전합니다.
         cur.execute("""
             UPDATE ocr_data 
-            SET answers = %s 
+            SET user_answers = %s 
             WHERE id = %s AND user_email = %s
         """, (user_ans, quiz_id, user_email))
 
@@ -87,8 +84,10 @@ async def grade_quiz(
         print(f"사용자: {user_email}")
         print(f"정답률: {correct_count}/{total_questions}")
         print(f"최종 리워드: {reward}P {'(올백 보너스!)' if is_all_correct else ''}")
-        print("="*40 + "\n")
+        print(f"✅ 사용자의 답변 저장 완료 (ID: {quiz_id})")
+        print(f"🔹 저장된 내용: {user_ans_json}")
 
+        
         return {
             "status": "success",
             "score": correct_count,

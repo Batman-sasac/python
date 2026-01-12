@@ -102,6 +102,19 @@
             <img id="image-preview" alt="미리보기">
         </div>
 
+        <div class="subject-selection" style="margin: 20px 0;">
+            <label for="subjectName">📚 과목 선택: </label>
+            <select id="subjectName" class="form-select" style="padding: 5px; border-radius: 5px;">
+                <option value="국어">국어</option>
+                <option value="영어">영어</option>
+                <option value="수학">수학</option>
+                <option value="사회">사회</option>
+                <option value="과학">과학</option>
+                <option value="기타">직접 입력</option>
+            </select>
+            <input type="text" id="customSubject" placeholder="과목명 직접 입력" style="display:none; margin-top:5px;">
+        </div>
+
         <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
         <div id="result-area">텍스트가 추출되면 이곳에 표시됩니다.</div>
 
@@ -113,8 +126,8 @@
     </div>
 
     <script>
-        let originalText = "";
-        let answerList = []; // 정답을 순서대로 저장할 배열
+        let g_originalText = ""; // 전역 변수
+        let answerList = [];
 
         function previewImage(input) {
             const preview = document.getElementById('image-preview');
@@ -134,7 +147,7 @@
 
             const resultArea = document.getElementById('result-area');
             resultArea.innerHTML = "🔍 파일 분석 중...";
-            answerList = []; // 리스트 초기화
+            answerList = [];
 
             try {
                 const res = await fetch("/ocr", { method: "POST", body: formData });
@@ -142,8 +155,9 @@
 
                 if (data.status === "success") {
                     let rawContent = data.original_text;
-                    const keywords = data.keywords || [];
+                    g_originalText = data.original_text; // [수정] 변수명 통일 (g_ 붙임)
 
+                    const keywords = data.keywords || [];
                     if (keywords.length > 0) {
                         const sortedKeywords = keywords
                             .filter(w => w.trim().length >= 2)
@@ -155,9 +169,7 @@
                             rawContent = rawContent.replace(pattern, '<strong>$1</strong>');
                         }
                     }
-
                     resultArea.innerHTML = rawContent;
-                    originalText = data.original_text;
                 } else {
                     resultArea.innerText = "에러: " + data.message;
                 }
@@ -166,55 +178,87 @@
             }
         }
 
-        // 빈칸 생성 함수
         function makeBlank() {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
             if (!selectedText) return alert("단어를 드래그하세요!");
 
-            answerList.push(selectedText); // 정답 저장
+            answerList.push(selectedText);
             const range = selection.getRangeAt(0);
 
             const span = document.createElement("span");
             span.className = "blank-span";
-            span.dataset.answer = selectedText; // 정답을 데이터 속성에 숨김
-            span.innerText = `(${answerList.length})`; // (1), (2) 형태로 표시
+            span.dataset.answer = selectedText;
+            span.innerText = `(${answerList.length})`;
 
             range.deleteContents();
             range.insertNode(span);
             selection.removeAllRanges();
         }
 
-        // 학습 시작 함수: span을 input으로 교체
-        function saveAndStartLearning() {
+        async function saveAndStartLearning() {
             const blanks = document.querySelectorAll('.blank-span');
             if (blanks.length === 0) return alert("빈칸을 먼저 만들어주세요!");
 
-            blanks.forEach((span, index) => {
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.className = 'quiz-input';
-                input.dataset.correctAnswer = span.dataset.answer; // 정답 매칭용
-                input.placeholder = `(${index + 1})`;
+            const subjectSelect = document.getElementById('subjectName');
+            let subjectName = subjectSelect.value;
+            if (subjectName === "기타") {
+                subjectName = document.getElementById('customSubject').value || "미지정 과목";
+            }
 
-                span.parentNode.replaceChild(input, span);
-            });
+            const originalContent = g_originalText; // [확인] 전역 변수 참조
+            const quizHtml = document.getElementById('result-area').innerHTML;
+            const answers = Array.from(blanks).map(span => span.dataset.answer);
 
-            // 버튼 변경
-            const studyBtn = document.getElementById('study-btn');
-            studyBtn.innerText = "채점하기";
-            studyBtn.onclick = checkAnswers;
-            studyBtn.style.background = "#17a2b8";
+            try {
+                const response = await fetch("/ocr/save-test", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        subject_name: subjectName,
+                        original: originalContent,
+                        quiz: quizHtml,
+                        answers: answers
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    document.getElementById('result-area').dataset.quizId = result.quiz_id;
+                    console.log(`✅ [${subjectName}] 저장 성공! ID: ${result.quiz_id}`);
+
+                    blanks.forEach((span, index) => {
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'quiz-input';
+                        input.dataset.correctAnswer = span.dataset.answer;
+                        input.placeholder = `(${index + 1})`;
+                        span.parentNode.replaceChild(input, span);
+                    });
+
+                    const studyBtn = document.getElementById('study-btn');
+                    studyBtn.innerText = "🎯 채점하기";
+                    studyBtn.onclick = checkAnswers;
+                } else {
+                    alert("저장 실패: " + result.message);
+                }
+            } catch (e) {
+                console.error("서버 연결 실패:", e);
+            }
         }
 
-        // 채점 함수
-        function checkAnswers() {
+        async function checkAnswers() {
             const inputs = document.querySelectorAll('.quiz-input');
             let score = 0;
+            const userAnswers = [];
+            const correctAnswers = [];
 
             inputs.forEach(input => {
                 const userAnswer = input.value.trim();
                 const correctAnswer = input.dataset.correctAnswer;
+                userAnswers.push(userAnswer);
+                correctAnswers.push(correctAnswer);
 
                 if (userAnswer === correctAnswer) {
                     input.classList.remove('wrong');
@@ -223,14 +267,36 @@
                 } else {
                     input.classList.remove('correct');
                     input.classList.add('wrong');
-                    input.value = `${userAnswer} (정답: ${correctAnswer})`; // 오답 시 정답 표시
+                    input.value = `${userAnswer} (정답: ${correctAnswer})`;
                 }
-                input.disabled = true; // 입력 불가 처리
+                input.disabled = true;
             });
 
             alert(`채점 완료! 총 ${inputs.length}개 중 ${score}개 맞혔습니다.`);
 
-            // 다시 학습하기 버튼으로 변경
+            const quizId = document.getElementById('result-area').dataset.quizId;
+            if (quizId) {
+                try {
+                    // [수정] 경로를 /quiz/grade로, 키값을 correct_answers로 변경
+                    const response = await fetch("/study/grade", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            quiz_id: parseInt(quizId),
+                            user_answers: userAnswers,
+                            answer: correctAnswers
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.status === "success") {
+                        console.log(`✅ DB 업데이트 성공! 획득 포인트: ${result.reward_given}`);
+                    }
+                } catch (e) {
+                    console.error("서버 연결 에러:", e);
+                }
+            }
+
             const studyBtn = document.getElementById('study-btn');
             studyBtn.innerText = "새로고침하여 다시하기";
             studyBtn.onclick = () => location.reload();

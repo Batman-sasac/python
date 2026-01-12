@@ -35,7 +35,7 @@ async def check_attendance_and_reward(user_email: str):
         new_total_points = cur.fetchone()[0]
 
         conn.commit()
-        print(f"🎊 [리워드 지급] {user_email}: 1P 완료 (총: {new_total_points}P)")
+        print(f"🎊 [리워드 지급] {user_email}: 10P 완료 (총: {new_total_points}P)")
         return True, new_total_points # 성공 여부와 포인트를 함께 반환
 
     except Exception as e:
