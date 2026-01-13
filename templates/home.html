@@ -167,19 +167,27 @@
         // 3. 월간 비교 통계 호출 (하단 카드 전용)
         async function fetchMonthlyStats() {
             try {
-                const response = await fetch('/cycle/ocr/learning-stats');
+                const response = await fetch('/cycle/learning-stats'); // 경로 주의!
                 const result = await response.json();
 
                 if (result.status === "success") {
                     const data = result.compare;
 
-                    // 텍스트 업데이트
-                    document.getElementById('lastMonthLabel').innerText = data.last_month_name + " 학습";
+                    // 1. 기존 통계 업데이트
                     document.getElementById('lastMonthCount').innerText = data.last_month_count + "회";
-
-                    document.getElementById('thisMonthLabel').innerText = data.this_month_name + " 학습";
                     document.getElementById('thisMonthCount').innerText = data.this_month_count + "회";
 
+                    // 2. 목표 대비 남은 횟수 업데이트 (HTML에 해당 ID의 요소가 있다고 가정)
+                    const goalElement = document.getElementById('goalStatus');
+                    if (goalElement) {
+                        if (data.target_count > 0) {
+                            goalElement.innerText = data.remaining_count > 0
+                                ? `이번 달 목표까지 ${data.remaining_count}회 남았어요! 🏃`
+                                : `축하합니다! 이번 달 목표를 달성하셨습니다! 🎉`;
+                        } else {
+                            goalElement.innerText = "설정된 목표가 없습니다. 목표를 설정해보세요!";
+                        }
+                    }
                     // 변화량 계산 및 색상 적용
                     const diff = data.diff;
                     const diffElement = document.getElementById('diffCount');
