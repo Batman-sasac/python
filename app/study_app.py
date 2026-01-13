@@ -21,7 +21,7 @@ async def grade_quiz(
     user_email: Optional[str] = Cookie(None)
 ):
     # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
-    correct_ans = payload.get('correct_answers', [])
+    correct_ans = payload.get('answer', [])
     user_ans = payload.get('user_answers', [])
     quiz_id = payload.get('quiz_id')
 
@@ -53,30 +53,42 @@ async def grade_quiz(
     # 4. DB 저장
     conn = get_db()
     cur = conn.cursor()
-    try:
-        # 리워드 내역 저장
-        if reward > 0:
-            cur.execute("""
-                INSERT INTO reward_history (user_email, reward_amount, reason) 
-                VALUES (%s, %s, %s)
-            """, (user_email, reward, f"퀴즈 정답: {correct_count}/{total_questions}"))
-            
-            # 사용자 포인트 업데이트
-            cur.execute("""
-                UPDATE users 
-                SET points = points + %s 
-                WHERE email = %s
-            """, (reward, user_email))
 
-        # 사용자가 입력한 답안 업데이트 (ocr_data 테이블)
-        # 리스트 형태이므로 json.dumps로 문자열화하여 저장하는 것이 안전합니다.
+    try:
+
+        # 1. 데이터 타입 변환 (리스트 -> JSON 문자열)
+        user_ans_str = json.dumps(user_ans)
+    
+        # 올백 여부 계산 (print문에서 쓰기 위해 선언)
+        is_all_correct = (correct_count == total_questions)
+
+    # [1] 공통 작업: 사용자의 답변 저장
         cur.execute("""
             UPDATE ocr_data 
             SET user_answers = %s 
             WHERE id = %s AND user_email = %s
         """, (user_ans, quiz_id, user_email))
 
+    # [2] 공통 작업: 학습 로그 저장 (여기에 한 번만 작성)
+        cur.execute("""
+            INSERT INTO study_logs(quiz_id, user_email) 
+            VALUES(%s, %s)
+        """, (quiz_id, user_email))
 
+    # [3] 조건부 작업: 리워드가 있을 때만 실행
+        if reward > 0:
+            cur.execute("""
+                INSERT INTO reward_history (user_email, reward_amount, reason) 
+                VALUES (%s, %s, %s)
+            """, (user_email, reward, f"퀴즈 정답: {correct_count}/{total_questions}"))
+        
+            cur.execute("""
+                UPDATE users 
+                SET points = points + %s 
+                WHERE email = %s
+            """, (reward, user_email))
+
+        # [4] 최종 확정
         conn.commit()
 
         # 터미널 로그 출력
@@ -85,7 +97,7 @@ async def grade_quiz(
         print(f"정답률: {correct_count}/{total_questions}")
         print(f"최종 리워드: {reward}P {'(올백 보너스!)' if is_all_correct else ''}")
         print(f"✅ 사용자의 답변 저장 완료 (ID: {quiz_id})")
-        print(f"🔹 저장된 내용: {user_ans_json}")
+        print(f"🔹 저장된 내용: {user_ans}")
 
         
         return {

@@ -1,0 +1,41 @@
+<div class="study-setting-card">
+    <h3>📅 월간 학습 계획</h3>
+    <p>이 퀴즈를 한 달 동안 몇 번 복습하시겠습니까?</p>
+
+    <div class="input-group">
+        <input type="number" id="reviewCount" min="1" max="30" value="4">
+        <span>번 복습하기</span>
+    </div>
+
+    <p class="hint">* 30일 기준으로 균등하게 배정됩니다.</p>
+
+    <button type="button" onclick="saveMonthlyPlan()" class="btn-save">학습 계획 확정</button>
+</div>
+
+<script>
+    async function saveMonthlyPlan() {
+        const quizId = document.getElementById('result-area').dataset.quizId;
+        const count = document.getElementById('reviewCount').value;
+
+        if (!quizId) return alert("저장된 퀴즈가 없습니다. 먼저 저장해주세요!");
+
+        try {
+            const response = await fetch("/ocr/set-monthly-plan", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    quiz_id: quizId,
+                    total_count: parseInt(count)
+                })
+            });
+
+            const result = await response.json();
+            if (result.status === "success") {
+                alert(`✅ 설정 완료! 한 달 동안 ${count}회의 학습 일정이 생성되었습니다.`);
+                console.log("생성된 날짜들:", result.scheduled_dates);
+            }
+        } catch (e) {
+            alert("일정 생성 중 오류가 발생했습니다.");
+        }
+    }
+</script>

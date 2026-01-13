@@ -4,27 +4,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>학습 홈 - 성장 그래프</title>
+    <title>학습 홈 - 성장 보고서</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Pretendard', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
         .chart-container {
             width: 100%;
-            max-width: 500px;
-            padding: 20px;
+            max-width: 450px;
+            padding: 25px;
             background: #fff;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
         }
 
         .summary-text {
-            font-size: 1.1rem;
-            font-weight: bold;
-            margin-bottom: 15px;
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: #2D3436;
+            line-height: 1.4;
         }
 
         .sub-text {
             font-size: 0.9rem;
-            color: #666;
+            color: #636E72;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+        }
+
+        /* 월간 비교 섹션 디자인 */
+        .comparison-box {
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #F1F2F6;
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+        }
+
+        .stat-item {
+            flex: 1;
+        }
+
+        .stat-label {
+            display: block;
+            font-size: 0.75rem;
+            color: #B2BEC3;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #0984E3;
+        }
+
+        .divider {
+            width: 1px;
+            background-color: #F1F2F6;
+            height: 40px;
+            align-self: center;
+        }
+
+        #diffCount {
+            transition: all 0.3s ease;
         }
     </style>
 </head>
@@ -32,75 +87,122 @@
 <body>
 
     <div class="chart-container">
-        <div id="summaryMessage" class="summary-text">데이터를 불러오는 중...</div>
+        <div id="summaryMessage" class="summary-text">학습 데이터를 분석하고 있습니다...</div>
 
         <canvas id="growthChart"></canvas>
 
-        <div class="sub-text" style="margin-top:10px;">
-            정답률 × 출석률: <span id="totalIndex" style="font-weight:bold;">0</span>
+        <div class="sub-text">
+            <span>이번 주 성장 지수</span>
+            <span id="totalIndex" style="font-weight:bold; color:#0984E3; font-size: 1.1rem;">0</span>
+        </div>
+
+        <div class="comparison-box">
+            <div class="stat-item">
+                <span class="stat-label" id="lastMonthLabel">전월</span>
+                <span class="stat-value" id="lastMonthCount">0회</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="stat-item">
+                <span class="stat-label" id="thisMonthLabel">당월</span>
+                <span class="stat-value" id="thisMonthCount">0회</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="stat-item">
+                <span class="stat-label">변화</span>
+                <span id="diffCount" class="stat-value">0회</span>
+            </div>
         </div>
     </div>
 
     <script>
-        // 1. 그래프 초기 설정
+        // 1. Chart.js 초기화
         const ctx = document.getElementById('growthChart').getContext('2d');
-        let growthChart = new Chart(ctx, {
+        const growthChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: [], // 백엔드에서 날짜를 받아올 예정
+                labels: ['-', '-', '-', '-', '-'],
                 datasets: [{
                     label: '성장 지수',
-                    data: [], // 백엔드에서 [20, 40, 30, 60, 100]을 받아올 예정
-                    borderColor: '#4A90E2', // 파란색 선
-                    backgroundColor: 'rgba(74, 144, 226, 0.1)', // 선 아래 연한 채우기
+                    data: [0, 0, 0, 0, 0],
+                    borderColor: '#0984E3',
+                    backgroundColor: 'rgba(9, 132, 227, 0.1)',
                     fill: true,
-                    tension: 0.4, // 선을 부드럽게 (곡선)
-                    pointRadius: 5,
-                    pointBackgroundColor: '#4A90E2'
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#0984E3',
+                    borderWidth: 3
                 }]
             },
             options: {
                 responsive: true,
-                plugins: {
-                    legend: { display: false } // 범례 숨김
-                },
+                plugins: { legend: { display: false } },
                 scales: {
-                    y: {
-                        beginAtZero: true,
-                        display: false // Y축 숫자 숨김 (이미지 디자인 반영)
-                    },
-                    x: {
-                        grid: { display: false } // X축 격자 숨김
-                    }
+                    y: { beginAtZero: true, display: false, max: 110 },
+                    x: { grid: { display: false }, ticks: { color: '#B2BEC3' } }
                 }
             }
         });
 
-        // 2. 백엔드에서 데이터 가져오기 (Fetch API)
-        async function loadGrowthData() {
+        // 2. 주간 성장 데이터 호출 (그래프 전용)
+        async function fetchWeeklyGrowth() {
             try {
-                // 이전에 만든 백엔드 엔드포인트 호출
                 const response = await fetch('/cycle/stats/weekly-growth');
                 const result = await response.json();
 
-                if (result.data) {
-                    // 그래프 업데이트
-                    growthChart.data.labels = result.labels; // ["12/28", ...]
-                    growthChart.data.datasets[0].data = result.data; // [20, 40, 30, 60, 100]
+                if (result.labels && result.data) {
+                    growthChart.data.labels = result.labels;
+                    growthChart.data.datasets[0].data = result.data;
                     growthChart.update();
-
-                    // 텍스트 업데이트
-                    document.getElementById('summaryMessage').innerText = "이번 주, 지난 주보다 " + (result.growth_rate || 12) + "% 더 성장했어요!";
-                    document.getElementById('totalIndex').innerText = result.data[result.data.length - 1];
+                    document.getElementById('totalIndex').innerText = result.current_index || result.data[result.data.length - 1];
                 }
             } catch (error) {
-                console.error("데이터 로드 실패:", error);
-                document.getElementById('summaryMessage').innerText = "데이터를 불러올 수 없습니다.";
+                console.error("주간 그래프 로드 실패:", error);
+            }
+        }
+
+        // 3. 월간 비교 통계 호출 (하단 카드 전용)
+        async function fetchMonthlyStats() {
+            try {
+                const response = await fetch('/cycle/ocr/learning-stats');
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    const data = result.compare;
+
+                    // 텍스트 업데이트
+                    document.getElementById('lastMonthLabel').innerText = data.last_month_name + " 학습";
+                    document.getElementById('lastMonthCount').innerText = data.last_month_count + "회";
+
+                    document.getElementById('thisMonthLabel').innerText = data.this_month_name + " 학습";
+                    document.getElementById('thisMonthCount').innerText = data.this_month_count + "회";
+
+                    // 변화량 계산 및 색상 적용
+                    const diff = data.diff;
+                    const diffElement = document.getElementById('diffCount');
+                    diffElement.innerText = (diff >= 0 ? "+" : "") + diff + "회";
+                    diffElement.style.color = diff >= 0 ? "#D63031" : "#00B894";
+
+                    // 상단 메시지 동적 변경
+                    const message = diff >= 0
+                        ? `이번 달은 지난달보다 ${diff}회 더 공부하셨네요! 멋져요! 🔥`
+                        : `학습량이 지난달보다 줄어들었어요. 조금만 더 힘내볼까요? ✊`;
+                    document.getElementById('summaryMessage').innerText = message;
+                }
+            } catch (error) {
+                console.error("월간 통계 로드 실패:", error);
+                document.getElementById('summaryMessage').innerText = "통계 데이터를 불러올 수 없습니다.";
             }
         }
 
         // 페이지 로드 시 실행
-        loadGrowthData();
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchWeeklyGrowth();
+            fetchMonthlyStats();
+        });
     </script>
 </body>
 

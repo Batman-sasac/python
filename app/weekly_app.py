@@ -121,3 +121,46 @@ async def index_page(user_email: Optional[str] = Cookie(None)): # 변수명 확�
     
     with open("templates/weeklyTarget.html", "r", encoding="utf-8") as f:
         return f.read()
+
+
+from flask import Flask, request, jsonify
+from datetime import datetime, date, timedelta
+import calendar
+
+@app.get("/ocr/learning-stats")
+async def get_learning_stats(user_email: str = Cookie(None)):
+    if not user_email:
+        return {"status": "error", "message": "로그인이 필요합니다."}
+
+    today = date.today()
+    this_month_start = today.replace(day=1)
+    last_month_end = this_month_start - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        # 이번 달 횟수 조회
+        cur.execute("SELECT COUNT(*) FROM study_logs WHERE user_email = %s AND created_at >= %s", (user_email, this_month_start))
+        this_month_count = cur.fetchone()[0]
+
+        # 지난달 횟수 조회
+        cur.execute("SELECT COUNT(*) FROM study_logs WHERE user_email = %s AND created_at BETWEEN %s AND %s", 
+                    (user_email, last_month_start, last_month_end))
+        last_month_count = cur.fetchone()[0]
+
+        return {
+            "status": "success",
+            "compare": {
+                "last_month_name": last_month_start.strftime('%m월'),
+                "last_month_count": last_month_count,
+                "this_month_name": this_month_start.strftime('%m월'),
+                "this_month_count": this_month_count,
+                "diff": this_month_count - last_month_count
+            }
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        conn.close()
