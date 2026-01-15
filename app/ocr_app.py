@@ -71,3 +71,38 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
     finally:
         cur.close()
         conn.close()
+
+@app.post("/ocr/ocr-data/delete/{quiz_id}")
+async def delete_ocr_data(quiz_id: int, user_email: str = Cookie(None)):
+     conn = get_db()
+     cur = conn.cursor()
+
+     try:
+        cur.execute("SELECT file_path FROM ocr_data WHERE id = %s AND user_email = %s",
+        (quiz_id, user_email))
+
+        row cur.fetchone()
+
+        if not row:
+            return{"status": "error", "message": "데이터를 찾지 못했습니다"}
+
+        file_path = row[0]
+        
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+
+        cur.execute("DELETE FROM ocr_data WHERE id = %s AND user_email = %s", (quiz_id, user_email))
+        conn.commit()
+        
+        print(f"해당 파일 삭제 완료:{quiz_id}")
+        return{"status": "success", "message":"삭제 성공했습니다."}
+
+    except Exception as e:
+        conn.rollback()
+        return{"status": "error", "message": str(e)}
+    finally:
+        cur.close()
+        conn.close()
+        
+
+        
