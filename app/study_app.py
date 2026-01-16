@@ -95,9 +95,10 @@ async def grade_quiz(
         print("\n" + "🎯"*10 + " 채점 결과 " + "🎯"*10)
         print(f"사용자: {user_email}")
         print(f"정답률: {correct_count}/{total_questions}")
+        print(f"🔹 사용자가 작성한 답변 내용: {user_ans}")
         print(f"최종 리워드: {reward}P {'(올백 보너스!)' if is_all_correct else ''}")
         print(f"✅ 사용자의 답변 저장 완료 (ID: {quiz_id})")
-        print(f"🔹 저장된 내용: {user_ans}")
+
 
         
         return {

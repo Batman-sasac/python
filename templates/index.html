@@ -198,6 +198,9 @@
 
         async function saveAndStartLearning() {
             const blanks = document.querySelectorAll('.blank-span');
+
+            const inputs = document.querySelectorAll('.quiz-input');
+
             if (blanks.length === 0) return alert("빈칸을 먼저 만들어주세요!");
 
             const subjectSelect = document.getElementById('subjectName');
@@ -207,8 +210,8 @@
             }
 
             const originalContent = g_originalText; // [확인] 전역 변수 참조
-            const quizHtml = document.getElementById('result-area').innerHTML;
             const answers = Array.from(blanks).map(span => span.dataset.answer);
+            const quizHtml = document.getElementById('result-area').innerHTML; // [추가] 빈칸이 포함된 HTML 구조
 
             try {
                 const response = await fetch("/ocr/save-test", {
@@ -274,6 +277,7 @@
 
             alert(`채점 완료! 총 ${inputs.length}개 중 ${score}개 맞혔습니다.`);
 
+            const userTypedAnswers = Array.from(inputs).map(input => input.value.trim());
             const quizId = document.getElementById('result-area').dataset.quizId;
             if (quizId) {
                 try {

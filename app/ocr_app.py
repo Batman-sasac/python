@@ -42,16 +42,16 @@ async def run_ocr_endpoint(file: UploadFile = File(...)):
         return {"status": "error", "message": str(e)}
 
 
-# 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식)
+# 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식) 
 @app.post("/ocr/save-test")
 async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(None)):
     conn = get_db()
     cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO ocr_data (user_email, subject_name, ocr_text, blank_text, answers) 
-            VALUES (%s, %s, %s, %s, %s) RETURNING id
-        """, (user_email, data.subject_name, data.original, data.quiz, data.answers))
+            INSERT INTO ocr_data (user_email, subject_name, ocr_text, answers) 
+            VALUES (%s, %s, %s, %s) RETURNING id
+        """, (user_email, data.subject_name, data.original, data.answers))
         new_id = cur.fetchone()[0]
         conn.commit()
 
@@ -72,16 +72,19 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
         cur.close()
         conn.close()
 
-@app.post("/ocr/ocr-data/delete/{quiz_id}")
-async def delete_ocr_data(quiz_id: int, user_email: str = Cookie(None)):
-     conn = get_db()
-     cur = conn.cursor()
 
-     try:
-        cur.execute("SELECT file_path FROM ocr_data WHERE id = %s AND user_email = %s",
+# 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
+@app.delete("/ocr/ocr-data/delete/{quiz_id}")
+async def delete_ocr_data(quiz_id: int, user_email: str = Cookie(None)):
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT image_url FROM ocr_data WHERE id = %s AND user_email = %s",
         (quiz_id, user_email))
 
-        row cur.fetchone()
+        row = cur.fetchone()
 
         if not row:
             return{"status": "error", "message": "데이터를 찾지 못했습니다"}
@@ -103,6 +106,72 @@ async def delete_ocr_data(quiz_id: int, user_email: str = Cookie(None)):
     finally:
         cur.close()
         conn.close()
-        
+
+
+# 학습 목록 /ocr/list
+from fastapi import Query, Cookie
+
+# 학습 목록 /ocr/list
+@app.get("/ocr/list")
+async def get_ocr_list(
+    user_email: str = Cookie(None),
+    page: int = Query(1, ge=1),
+    size: int = Query(10, ge=1)
+):
+    start = (page - 1) * size
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT
+                id,
+                study_name,
+                subject_name,
+
+                CASE
+                    WHEN LENGTH(ocr_text) > 50
+                        THEN SUBSTRING(ocr_text FROM 1 FOR 50) || '...'
+                    ELSE ocr_text
+                END AS ocr_preview,
+
+                CASE
+                    WHEN created_at::DATE = CURRENT_DATE THEN '오늘'
+                    WHEN created_at >= CURRENT_DATE - INTERVAL '7 days'
+                        THEN (CURRENT_DATE - created_at::DATE) || '일 전'
+                    ELSE TO_CHAR(created_at::DATE, 'YYYY-MM-DD')
+                END AS created_at_display
+
+            FROM public.ocr_data
+            WHERE user_email = %s
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s
+        """, (user_email, size, start))
+
+        rows = cur.fetchall()
+
+        result = []
+        for row in rows:
+            result.append({
+                "id": row[0],
+                "study_name": row[1],
+                "subject_name": row[2],
+                "ocr_preview": row[3],
+                "created_at": row[4]
+            })
+
+        return {
+            "page": page,
+            "size": size,
+            "data": result
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+
 
         
