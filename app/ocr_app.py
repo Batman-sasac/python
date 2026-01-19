@@ -49,9 +49,9 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
     cur = conn.cursor()
     try:
         cur.execute("""
-            INSERT INTO ocr_data (user_email, subject_name, ocr_text, answers) 
+            INSERT INTO ocr_data (user_email, subject_name, study_name, ocr_text, answers) 
             VALUES (%s, %s, %s, %s) RETURNING id
-        """, (user_email, data.subject_name, data.original, data.answers))
+        """, (user_email, data.subject_name, data.study_name, data.original, data.answers))
         new_id = cur.fetchone()[0]
         conn.commit()
 
@@ -131,9 +131,9 @@ async def get_ocr_list(
                 subject_name,
 
                 CASE
-                    WHEN LENGTH(ocr_text) > 50
-                        THEN SUBSTRING(ocr_text FROM 1 FOR 50) || '...'
-                    ELSE ocr_text
+                    WHEN LENGTH(ocr_text::TEXT) > 50
+                        THEN SUBSTRING(ocr_text::TEXT FROM 1 FOR 50) || '...'
+                    ELSE ocr_text::TEXT
                 END AS ocr_preview,
 
                 CASE

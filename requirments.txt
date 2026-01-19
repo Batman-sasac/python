@@ -1,14 +1,19 @@
 # 웹 서버 (FastAPI)
 fastapi
 uvicorn
+# 파일 업로드(OCR용) 처리
 python-multipart
 flask-cors
 
 # AI 및 클라우드 서비스
-google-cloud-vision
 openai
 python-dotenv
 
 # PDF 및 데이터 처리
 pdf2image
 pillow
+
+# AWS RDS(PostgreSQL) 연결
+psycopg2-binary
+# 네이버 클로바 API 호출
+requests

@@ -41,14 +41,11 @@
         }
 
         #result-area {
-            border: 1px solid #ddd;
-            padding: 20px;
-            min-height: 200px;
-            margin-top: 20px;
-            background: white;
-            line-height: 1.8;
             white-space: pre-wrap;
-            /* 줄바꿈 유지 */
+            /* 줄바꿈(\n)과 공백을 그대로 유지 */
+            word-break: break-all;
+            /* 단어가 길어도 영역 밖으로 나가지 않게 함 */
+            line-height: 1.6;
         }
 
         #result-area strong {
@@ -98,7 +95,7 @@
         <h2>📸 학습 이미지 업로드</h2>
         <div class="upload-box" onclick="document.getElementById('fileInput').click()">
             <p>클릭하여 이미지를 업로드하세요.</p>
-            <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="previewImage(this)">
+            <input type="file" id="fileInput" accept="image/*, .pdf" style="display:none" onchange="previewImage(this)">
             <img id="image-preview" alt="미리보기">
         </div>
 
@@ -114,6 +111,7 @@
             </select>
             <input type="text" id="customSubject" placeholder="과목명 직접 입력" style="display:none; margin-top:5px;">
         </div>
+        <input type="text" id="studyName" placeholder="학습명 입력">
 
         <button class="btn btn-ocr" onclick="startOCR()">텍스트 추출 시작</button>
         <div id="result-area">텍스트가 추출되면 이곳에 표시됩니다.</div>
@@ -123,20 +121,23 @@
             <button class="btn" id="study-btn" style="background: #28a745; color: white;"
                 onclick="saveAndStartLearning()">학습 시작</button>
         </div>
+
+        <div id="pdf-controls"
+            style="margin: 15px 0; display: none; text-align: center; background: #f8f9fa; padding: 10px; border-radius: 8px;">
+            <button class="btn" style="background: #6c757d; color: white;" onclick="changePage(-1)">◀ 이전 페이지</button>
+            <span id="page-indicator" style="font-weight: bold; margin: 0 15px; font-size: 1.1em;">1 / 1</span>
+            <button class="btn" style="background: #6c757d; color: white;" onclick="changePage(1)">다음 페이지 ▶</button>
+        </div>
     </div>
 
     <script>
-        let g_originalText = ""; // 전역 변수
+        // 1. 전역 변수 선언부 (함수 밖 상단에 위치해야 함)
+        let g_pdfPages = [];
+        let g_keywords = [];
+        let g_originalText = "";
         let answerList = [];
-
-        function previewImage(input) {
-            const preview = document.getElementById('image-preview');
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = (e) => { preview.src = e.target.result; preview.style.display = 'block'; };
-                reader.readAsDataURL(input.files[0]);
-            }
-        }
+        let g_currentPageIndex = 0;
+        let g_pagesKeywords = [];
 
         async function startOCR() {
             const fileInput = document.getElementById('fileInput');
@@ -146,35 +147,104 @@
             formData.append("file", fileInput.files[0]);
 
             const resultArea = document.getElementById('result-area');
-            resultArea.innerHTML = "🔍 파일 분석 중...";
-            answerList = [];
+            resultArea.innerHTML = "🔍 파일 분석 중... PDF는 최대 1분 정도 소요";
 
             try {
-                const res = await fetch("/ocr", { method: "POST", body: formData });
+                const res = await fetch("/ocr", {
+                    method: "POST",
+                    body: formData
+                });
                 const data = await res.json();
 
                 if (data.status === "success") {
-                    let rawContent = data.original_text;
-                    g_originalText = data.original_text; // [수정] 변수명 통일 (g_ 붙임)
+                    // [중요 수정] g_pdgPages -> g_pdfPages 오타 수정
+                    g_pdfPages = data.pages || [data.original_text];
+                    g_originalText = data.original_text;
 
-                    const keywords = data.keywords || [];
-                    if (keywords.length > 0) {
-                        const sortedKeywords = keywords
-                            .filter(w => w.trim().length >= 2)
-                            .sort((a, b) => b.length - a.length);
 
-                        if (sortedKeywords.length > 0) {
-                            const escaped = sortedKeywords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-                            const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
-                            rawContent = rawContent.replace(pattern, '<strong>$1</strong>');
-                        }
-                    }
-                    resultArea.innerHTML = rawContent;
+                    // 백에서 보낸 페이지뱔 키워드 저장
+                    g_pagesKeywords = data.pages_keywords || [];
+                    g_keywords = data.keywords || []; // 전역 변수에 할당
+
+                    g_currentPageIndex = 0; // 시작 시 첫 페이지 초기화
+                    renderCurrentPage();
                 } else {
                     resultArea.innerText = "에러: " + data.message;
                 }
             } catch (e) {
-                resultArea.innerText = "서버 연결 실패";
+                resultArea.innerHTML = `❌ 연결 실패: ${e.message}<br>파일 용량이 너무 크거나 서버 응답 시간이 초과되었습니다.`;
+            }
+        }
+
+        let g_pageQuizzes = {};
+        let g_pageAnswers = {};
+
+        function renderCurrentPage() {
+            const resultArea = document.getElementById('result-area');
+            if (!g_pdfPages || g_pdfPages.length === 0) return;
+
+            // 1. 이미 퀴즈(빈칸)를 만든 적이 있는 페이지라면 해당 상태를 복원
+            if (g_pageQuizzes[g_currentPageIndex]) {
+                resultArea.innerHTML = g_pageQuizzes[g_currentPageIndex];
+                answerList = g_pageAnswers[g_currentPageIndex] || [];
+                updatePageUI();
+                return;
+            }
+
+            // 2. 신규 페이지 렌더링을 위한 텍스트 확보
+            let rawContent = g_pdfPages[g_currentPageIndex];
+            if (typeof rawContent === 'object' && rawContent !== null) {
+                rawContent = rawContent.text || rawContent.content || JSON.stringify(rawContent);
+            } else {
+                rawContent = String(rawContent);
+            }
+
+            // [수정 핵심] 3. 현재 페이지에 맞는 키워드 세트만 가져오기
+            const currentPageKeywords = (g_pagesKeywords && g_pagesKeywords[g_currentPageIndex])
+                ? g_pagesKeywords[g_currentPageIndex] : [];
+
+            // 4. 키워드 강조 처리 (Strong)
+            if (currentPageKeywords.length > 0) {
+                // [수정] g_keywords 대신 currentPageKeywords를 사용하여 강조합니다.
+                const sortedKeywords = [...currentPageKeywords]
+                    .filter(w => w.trim().length >= 2)
+                    .sort((a, b) => b.length - a.length);
+
+                if (sortedKeywords.length > 0) {
+                    const escaped = sortedKeywords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
+
+                    // \n이 포함된 상태에서 <strong> 태그만 입힙니다.
+                    rawContent = rawContent.replace(pattern, '<strong>$1</strong>');
+                }
+            }
+
+            // 5. 화면 반영
+            resultArea.innerHTML = rawContent;
+            g_originalText = rawContent;
+            answerList = [];
+
+            updatePageUI();
+        }
+
+        function changePage(direction) {
+            const newIndex = g_currentPageIndex + direction;
+            if (newIndex >= 0 && newIndex < g_pdfPages.length) {
+                g_currentPageIndex = newIndex;
+                renderCurrentPage();
+            }
+        }
+
+
+        function updatePageUI() {
+            const controls = document.getElementById('pdf-controls');
+            const indicator = document.getElementById('page-indicator');
+
+            if (g_pdfPages && g_pdfPages.length > 1) {
+                controls.style.display = 'block';
+                indicator.innerText = `${g_currentPageIndex + 1} / ${g_pdfPages.length}`;
+            } else {
+                controls.style.display = 'none';
             }
         }
 
@@ -185,7 +255,6 @@
 
             answerList.push(selectedText);
             const range = selection.getRangeAt(0);
-
             const span = document.createElement("span");
             span.className = "blank-span";
             span.dataset.answer = selectedText;
@@ -194,14 +263,26 @@
             range.deleteContents();
             range.insertNode(span);
             selection.removeAllRanges();
+
+            // 빈칸 생성 후 상태 저장
+            saveCurrentPageState();
+        }
+
+        function saveCurrentPageState() {
+            const resultArea = document.getElementById('result-area');
+
+            g_pageQuizzes[g_currentPageIndex] = resultArea.innerHTML;
+            g_pageAnswers[g_currentPageIndex] = [...answerList];
         }
 
         async function saveAndStartLearning() {
-            const blanks = document.querySelectorAll('.blank-span');
+            // [수정] 현재 페이지뿐만 아니라 모든 페이지의 정답을 합칩니다.
+            const allAnswers = Object.values(g_pageAnswers).flat();
 
-            const inputs = document.querySelectorAll('.quiz-input');
-
-            if (blanks.length === 0) return alert("빈칸을 먼저 만들어주세요!");
+            // 만약 드래그만 하고 아직 다른 페이지로 안 넘어가서 g_pageAnswers에 안 담겼을 경우를 대비해 
+            // 현재 화면에 보이는 빈칸들도 체크합니다.
+            const currentBlanks = document.querySelectorAll('.blank-span');
+            if (allAnswers.length === 0 && currentBlanks.length === 0) return alert("빈칸을 먼저 만들어주세요!");
 
             const subjectSelect = document.getElementById('subjectName');
             let subjectName = subjectSelect.value;
@@ -209,9 +290,13 @@
                 subjectName = document.getElementById('customSubject').value || "미지정 과목";
             }
 
-            const originalContent = g_originalText; // [확인] 전역 변수 참조
-            const answers = Array.from(blanks).map(span => span.dataset.answer);
-            const quizHtml = document.getElementById('result-area').innerHTML; // [추가] 빈칸이 포함된 HTML 구조
+            // [추가] 사용자가 입력한 학습명 가져오기
+            const studyNameInput = document.getElementById('studyName');
+            const studyName = studyNameInput.value.trim() || `${subjectName} 학습 (${new Date().toLocaleDateString()})`;
+
+            // [핵심 수정] 모든 페이지의 퀴즈 HTML과 정답 데이터를 준비합니다.
+            // 아직 저장되지 않은 현재 페이지 상태를 마지막으로 업데이트합니다.
+            saveCurrentPageState();
 
             try {
                 const response = await fetch("/ocr/save-test", {
@@ -219,9 +304,10 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         subject_name: subjectName,
-                        original: originalContent,
-                        quiz: quizHtml,
-                        answers: answers
+                        study_name: studyName,
+                        original: g_pdfPages,            // 전체 페이지 텍스트 리스트
+                        quiz: JSON.stringify(g_pageQuizzes), // 각 페이지별 HTML이 담긴 JSON 객체
+                        answers: allAnswers              // 모든 페이지의 정답 리스트 합본
                     })
                 });
 
@@ -229,9 +315,11 @@
 
                 if (result.status === "success") {
                     document.getElementById('result-area').dataset.quizId = result.quiz_id;
-                    console.log(`✅ [${subjectName}] 저장 성공! ID: ${result.quiz_id}`);
+                    console.log(`✅ [${subjectName}] 전체 저장 성공! ID: ${result.quiz_id}`);
 
-                    blanks.forEach((span, index) => {
+                    // 현재 화면에 보이는 빈칸들을 input으로 교체
+                    const currentVisibleBlanks = document.querySelectorAll('.blank-span');
+                    currentVisibleBlanks.forEach((span, index) => {
                         const input = document.createElement('input');
                         input.type = 'text';
                         input.className = 'quiz-input';
