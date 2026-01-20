@@ -45,3 +45,32 @@ async def check_attendance_and_reward(user_email: str):
     finally:
         cur.close()
         conn.close()
+
+# 복습 완료 시 리워드 제공
+@app.post("/reward/review-study")
+async def review_study_reward(user_email: Optional[str] = Cookie(None)):
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, 40, '복습완료')", (user_email,))
+
+
+        cur.execute("UPDATE users SET points = points + 40 WHERE email = %s ", (user_email,))
+
+        cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
+
+        new_total_points = cur.fetchone()[0]
+
+        conn.commit()
+
+        
+
+        print("복습 완료 40P 적립")
+        print(f"{user_email}님은 복습을 완료하여 40P 적립 후 총{new_total_points}입니다")
+    except Exception as e:
+        conn.rollback()
+        print(f"오류:{e}")
+    finally:
+        cur.close()
+        conn.close()

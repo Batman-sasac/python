@@ -21,7 +21,6 @@
             color: #333;
         }
 
-        /* 헤더 및 진행 바 */
         .header {
             background: white;
             padding: 20px;
@@ -46,7 +45,6 @@
             transition: width 0.3s;
         }
 
-        /* 퀴즈 본문 영역 */
         .quiz-container {
             background: white;
             padding: 30px;
@@ -58,7 +56,6 @@
             min-height: 500px;
         }
 
-        /* 입력창 스타일 */
         .quiz-input {
             border: none;
             border-bottom: 2px solid #ccc;
@@ -76,7 +73,6 @@
             background: #f0f7ff;
         }
 
-        /* 채점 결과 스타일 */
         .correct {
             color: var(--success) !important;
             font-weight: bold;
@@ -98,7 +94,6 @@
             font-weight: normal;
         }
 
-        /* 하단 컨트롤 */
         .controls {
             display: flex;
             justify-content: space-between;
@@ -120,17 +115,9 @@
             color: #555;
         }
 
-        .btn-nav:hover {
-            background: #ddd;
-        }
-
         .btn-main {
             background: var(--primary);
             color: white;
-        }
-
-        .btn-main:hover {
-            background: #357abd;
         }
     </style>
 </head>
@@ -138,15 +125,14 @@
 <body>
 
     <div class="header">
-        <h2 id="display-title" style="margin:0">학습지명</h2>
+        <h2 id="display-title" style="margin:0">불러오는 중...</h2>
         <p id="display-subject" style="margin:5px 0 0; color: #666;">과목명</p>
         <div class="progress-container">
             <div id="progress-bar"></div>
         </div>
     </div>
 
-    <div id="result-area" class="quiz-container">
-    </div>
+    <div id="result-area" class="quiz-container"></div>
 
     <div class="controls">
         <div>
@@ -161,44 +147,50 @@
     </div>
 
     <script>
-        // 1. 서버에서 전달된 JSON 데이터 파싱 (Jinja2)
-        // 백엔드에서 json.dumps(quiz_data, default=datetime_handler) 처리된 결과
+        // 1. 서버 데이터 주입 (Jinja2)
         const serverData = {{ quiz_json | safe }};
 
-        // 2. 전역 상태 관리
-        let g_pdfPages = serverData.ocr_text || [];     // 원본 텍스트 리스트
-        let g_pageQuizzes = serverData.quiz_html || {}; // 저장된 빈칸 span HTML
+        // 2. 전역 상태
+        let g_pdfPages = serverData.ocr_text || [];
+        let g_pageQuizzes = serverData.quiz_html || {};
         let g_currentPageIndex = 0;
-        let g_userAnswers = {}; // 복습 시 사용자가 입력한 답 {페이지인덱스: [답1, 답2...]}
+        let g_userAnswers = {};
         let isGradedMode = false;
 
         document.addEventListener('DOMContentLoaded', () => {
-            // 초기 UI 셋팅
-            document.getElementById('display-title').innerText = serverData.study_name;
-            document.getElementById('display-subject').innerText = serverData.subject_name;
-            renderCurrentPage();
+            if (serverData) {
+                document.getElementById('display-title').innerText = serverData.study_name || "제목 없음";
+                document.getElementById('display-subject').innerText = serverData.subject_name || "과목 없음";
+                renderCurrentPage();
+            } else {
+                alert("데이터를 불러오지 못했습니다.");
+            }
         });
 
-        // 3. 페이지 렌더링 함수
         function renderCurrentPage() {
             const resultArea = document.getElementById('result-area');
-
-            // 페이지 이동 시 이전 페이지 입력값 임시 저장
             saveCurrentInputs();
 
-            // 저장된 퀴즈 HTML이 있으면 복원 (span 태그 상태)
+            let htmlContent = "";
+
+            // 1. 저장된 퀴즈 HTML 또는 원본 텍스트 가져오기
             if (g_pageQuizzes[g_currentPageIndex]) {
-                resultArea.innerHTML = g_pageQuizzes[g_currentPageIndex];
+                htmlContent = g_pageQuizzes[g_currentPageIndex];
             } else {
-                resultArea.innerHTML = g_pdfPages[g_currentPageIndex] || "데이터가 없습니다.";
+                htmlContent = g_pdfPages[g_currentPageIndex] || "내용이 없습니다.";
             }
 
-            // [핵심] 모든 span을 다시 입력 가능한 input으로 변환
+            // [핵심] 2. 강조 태그(<strong>, </strong>)만 제거하여 효과 없애기
+            // 정규표현식을 사용하여 텍스트 안의 모든 강조 태그를 삭제합니다.
+            htmlContent = htmlContent.replace(/<strong>/g, "").replace(/<\/strong>/g, "");
+
+            // 3. 화면 반영 (이제 강조 없는 깨끗한 텍스트가 출력됩니다)
+            resultArea.innerHTML = htmlContent;
+
             convertSpansToInputs();
             updatePageUI();
         }
 
-        // 4. 빈칸(span)을 입력창(input)으로 변환
         function convertSpansToInputs() {
             const spans = document.querySelectorAll('.blank-span');
             const savedAns = g_userAnswers[g_currentPageIndex] || [];
@@ -207,41 +199,31 @@
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'quiz-input';
-                const correctAnswer = span.dataset.answer; // 저장된 정답 추출
-                input.dataset.correctAnswer = correctAnswer;
+                const cAns = span.dataset.answer || "";
+                input.dataset.correctAnswer = cAns;
+                input.style.width = (cAns.length * 15 + 30) + "px";
 
-                // 크기 자동 조절 (정답 길이에 맞춰 기본 너비 설정)
-                input.style.width = (correctAnswer.length * 14 + 20) + "px";
-                input.placeholder = `(${index + 1})`;
+                //사용자 입력값 복원
+                if (savedAns[index] !== undefined) input.value = savedAns[index];
 
-                // 사용자가 입력했던 값 복구
-                if (savedAns[index] !== undefined) {
-                    input.value = savedAns[index];
-                }
-
-                // [채점 모드 로직] 오답 시 정답 병기
                 if (isGradedMode) {
-                    const uAns = input.value.trim();
-                    const cAns = correctAnswer.trim();
-
-                    if (uAns === cAns) {
+                    const uVal = input.value.trim();
+                    const cVal = cAns.trim();
+                    if (uVal === cVal) {
                         input.classList.add('correct');
                     } else {
                         input.classList.add('wrong');
-                        // 오답 시 입력값 옆에 정답을 표시하는 방식
                         const hint = document.createElement('span');
                         hint.className = 'ans-hint';
-                        hint.innerText = `(정답: ${cAns})`;
+                        hint.innerText = `(${cVal})`;
                         input.after(hint);
                     }
-                    input.disabled = true; // 채점 후 수정 금지
+                    input.disabled = true; //수정 불가
                 }
-
                 span.parentNode.replaceChild(input, span);
             });
         }
 
-        // 5. 유틸리티 함수들
         function saveCurrentInputs() {
             const inputs = document.querySelectorAll('.quiz-input');
             if (inputs.length > 0) {
@@ -258,31 +240,45 @@
         }
 
         function updatePageUI() {
-            const total = g_pdfPages.length;
+            const total = g_pdfPages.length || 1;
             const current = g_currentPageIndex + 1;
             document.getElementById('page-indicator').innerText = `${current} / ${total}`;
-
-            // 진행 바 업데이트
-            const progress = (current / total) * 100;
-            document.getElementById('progress-bar').style.width = progress + "%";
+            document.getElementById('progress-bar').style.width = (current / total * 100) + "%";
         }
 
-        // 6. 채점 로직
-        function checkAnswers() {
-            saveCurrentInputs(); // 현재 페이지 최종 저장
-            isGradedMode = true;
+        // 6. 채점 및 리워드 지급 (수정됨)
+        async function checkAnswers() {
+            if (isGradedMode) return; // 이미 채점했다면 중복 방지
 
-            // 화면 갱신 (색상 및 힌트 반영)
+            saveCurrentInputs();
+            isGradedMode = true;
             renderCurrentPage();
 
-            // 총점 계산 (전체 페이지 순회)
-            let totalCorrect = 0;
-            let totalBlanks = 0;
+            const quizId = serverData.id; // serverData에서 ID 추출
 
-            // 저장된 정답(g_pageQuizzes 내 span 파싱은 복잡하므로 간단히 화면 기준으로 알림)
-            // 실제 정확한 전체 통계는 g_userAnswers와 serverData.answers를 비교하여 계산 가능합니다.
+            const allUserAnswers = [];
+            Object.keys(g_pageQuizzes).forEach(pageIdx => {
+                const pageAns = g_userAnswers[pageIdx] || [];
+                allUserAnswers.push(...pageAns);
+            });
 
-            alert("채점이 완료되었습니다! 틀린 부분의 정답을 확인하며 복습하세요.");
+            try {
+                const response = await fetch("/reward/review-study", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        quiz_id: Number(quizId),
+                        user_answers: allUserAnswers // 사용자가 입력한 전체 답안 리스트
+                    })
+                });
+                const result = await response.json();
+
+                if (result.status === "success") {
+                    alert(`축하합니다! ${result.message}`);
+                }
+            } catch (e) {
+                console.error("리워드 지급 중 오류 발생:", e);
+            }
 
             const btn = document.getElementById('study-btn');
             btn.innerText = "🔄 다시 풀기";
