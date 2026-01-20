@@ -5,6 +5,11 @@ from pydantic import BaseModel
 from typing import List, Optional
 from database import get_db
 import json
+import psycopg2
+import psycopg2.extras
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 app = APIRouter(prefix="/study", tags=["study"])
 
@@ -113,6 +118,34 @@ async def grade_quiz(
         if conn: conn.rollback()
         print(f"❌ 리워드 저장 오류: {e}")
         return {"status": "error", "message": f"리워드 저장 실패: {str(e)}"}
+    finally:
+        cur.close()
+        conn.close()
+
+
+from fastapi.templating import Jinja2Templates
+
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
+async def review_page(request: Request, quiz_id: int):
+    conn = get_db()
+    # 딕셔너리 형태로 데이터 조회
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        cur.execute("SELECT subject_name, study_name, ocr_text, answers, quiz_html FROM ocr_data WHERE id = %s", (quiz_id,))
+        quiz_data = cur.fetchone()
+        
+        if not quiz_data:
+            return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
+
+        # [핵심] JSON 데이터를 문자열로 변환하여 템플릿에 전달
+        # (JS에서 바로 객체로 쓸 수 있게 하기 위함)
+        return templates.TemplateResponse("review_study.html", {
+            "request": request,
+            "quiz": quiz_data, # DB 데이터 통째로 전달
+            "quiz_json": json.dumps(quiz_data, ensure_ascii=False) # JS용 JSON 문자열
+        })
     finally:
         cur.close()
         conn.close()

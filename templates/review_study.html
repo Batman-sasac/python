@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>복습 모드 - 상세 학습</title>
+    <style>
+        :root {
+            --primary: #4a90e2;
+            --success: #4caf50;
+            --danger: #f44336;
+            --bg: #f8f9fa;
+        }
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background: var(--bg);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+
+        /* 헤더 및 진행 바 */
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            margin-bottom: 20px;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        #progress-bar {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        /* 퀴즈 본문 영역 */
+        .quiz-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            line-height: 2.2;
+            font-size: 1.1rem;
+            white-space: pre-wrap;
+            min-height: 500px;
+        }
+
+        /* 입력창 스타일 */
+        .quiz-input {
+            border: none;
+            border-bottom: 2px solid #ccc;
+            padding: 2px 8px;
+            margin: 0 4px;
+            text-align: center;
+            font-size: 1rem;
+            transition: all 0.2s;
+            outline: none;
+            background: #fdfdfd;
+        }
+
+        .quiz-input:focus {
+            border-bottom-color: var(--primary);
+            background: #f0f7ff;
+        }
+
+        /* 채점 결과 스타일 */
+        .correct {
+            color: var(--success) !important;
+            font-weight: bold;
+            border-bottom: 2px solid var(--success) !important;
+            background: #e8f5e9 !important;
+        }
+
+        .wrong {
+            color: var(--danger) !important;
+            font-weight: bold;
+            border-bottom: 2px solid var(--danger) !important;
+            background: #ffebee !important;
+        }
+
+        .ans-hint {
+            font-size: 0.9rem;
+            color: #666;
+            margin-left: 4px;
+            font-weight: normal;
+        }
+
+        /* 하단 컨트롤 */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 25px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+
+        .btn-nav {
+            background: #eee;
+            color: #555;
+        }
+
+        .btn-nav:hover {
+            background: #ddd;
+        }
+
+        .btn-main {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-main:hover {
+            background: #357abd;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h2 id="display-title" style="margin:0">학습지명</h2>
+        <p id="display-subject" style="margin:5px 0 0; color: #666;">과목명</p>
+        <div class="progress-container">
+            <div id="progress-bar"></div>
+        </div>
+    </div>
+
+    <div id="result-area" class="quiz-container">
+    </div>
+
+    <div class="controls">
+        <div>
+            <button class="btn btn-nav" onclick="changePage(-1)">이전 페이지</button>
+            <span id="page-indicator" style="margin: 0 15px; font-weight: bold;">1 / 1</span>
+            <button class="btn btn-nav" onclick="changePage(1)">다음 페이지</button>
+        </div>
+        <div>
+            <button id="study-btn" class="btn btn-main" onclick="checkAnswers()">🎯 채점하기</button>
+            <button class="btn btn-nav" onclick="location.href='/study-list'" style="margin-left: 10px;">목록으로</button>
+        </div>
+    </div>
+
+    <script>
+        // 1. 서버에서 전달된 JSON 데이터 파싱 (Jinja2)
+        // 백엔드에서 json.dumps(quiz_data, default=datetime_handler) 처리된 결과
+        const serverData = {{ quiz_json | safe }};
+
+        // 2. 전역 상태 관리
+        let g_pdfPages = serverData.ocr_text || [];     // 원본 텍스트 리스트
+        let g_pageQuizzes = serverData.quiz_html || {}; // 저장된 빈칸 span HTML
+        let g_currentPageIndex = 0;
+        let g_userAnswers = {}; // 복습 시 사용자가 입력한 답 {페이지인덱스: [답1, 답2...]}
+        let isGradedMode = false;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // 초기 UI 셋팅
+            document.getElementById('display-title').innerText = serverData.study_name;
+            document.getElementById('display-subject').innerText = serverData.subject_name;
+            renderCurrentPage();
+        });
+
+        // 3. 페이지 렌더링 함수
+        function renderCurrentPage() {
+            const resultArea = document.getElementById('result-area');
+
+            // 페이지 이동 시 이전 페이지 입력값 임시 저장
+            saveCurrentInputs();
+
+            // 저장된 퀴즈 HTML이 있으면 복원 (span 태그 상태)
+            if (g_pageQuizzes[g_currentPageIndex]) {
+                resultArea.innerHTML = g_pageQuizzes[g_currentPageIndex];
+            } else {
+                resultArea.innerHTML = g_pdfPages[g_currentPageIndex] || "데이터가 없습니다.";
+            }
+
+            // [핵심] 모든 span을 다시 입력 가능한 input으로 변환
+            convertSpansToInputs();
+            updatePageUI();
+        }
+
+        // 4. 빈칸(span)을 입력창(input)으로 변환
+        function convertSpansToInputs() {
+            const spans = document.querySelectorAll('.blank-span');
+            const savedAns = g_userAnswers[g_currentPageIndex] || [];
+
+            spans.forEach((span, index) => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'quiz-input';
+                const correctAnswer = span.dataset.answer; // 저장된 정답 추출
+                input.dataset.correctAnswer = correctAnswer;
+
+                // 크기 자동 조절 (정답 길이에 맞춰 기본 너비 설정)
+                input.style.width = (correctAnswer.length * 14 + 20) + "px";
+                input.placeholder = `(${index + 1})`;
+
+                // 사용자가 입력했던 값 복구
+                if (savedAns[index] !== undefined) {
+                    input.value = savedAns[index];
+                }
+
+                // [채점 모드 로직] 오답 시 정답 병기
+                if (isGradedMode) {
+                    const uAns = input.value.trim();
+                    const cAns = correctAnswer.trim();
+
+                    if (uAns === cAns) {
+                        input.classList.add('correct');
+                    } else {
+                        input.classList.add('wrong');
+                        // 오답 시 입력값 옆에 정답을 표시하는 방식
+                        const hint = document.createElement('span');
+                        hint.className = 'ans-hint';
+                        hint.innerText = `(정답: ${cAns})`;
+                        input.after(hint);
+                    }
+                    input.disabled = true; // 채점 후 수정 금지
+                }
+
+                span.parentNode.replaceChild(input, span);
+            });
+        }
+
+        // 5. 유틸리티 함수들
+        function saveCurrentInputs() {
+            const inputs = document.querySelectorAll('.quiz-input');
+            if (inputs.length > 0) {
+                g_userAnswers[g_currentPageIndex] = Array.from(inputs).map(i => i.value);
+            }
+        }
+
+        function changePage(direction) {
+            const newIndex = g_currentPageIndex + direction;
+            if (newIndex >= 0 && newIndex < g_pdfPages.length) {
+                g_currentPageIndex = newIndex;
+                renderCurrentPage();
+            }
+        }
+
+        function updatePageUI() {
+            const total = g_pdfPages.length;
+            const current = g_currentPageIndex + 1;
+            document.getElementById('page-indicator').innerText = `${current} / ${total}`;
+
+            // 진행 바 업데이트
+            const progress = (current / total) * 100;
+            document.getElementById('progress-bar').style.width = progress + "%";
+        }
+
+        // 6. 채점 로직
+        function checkAnswers() {
+            saveCurrentInputs(); // 현재 페이지 최종 저장
+            isGradedMode = true;
+
+            // 화면 갱신 (색상 및 힌트 반영)
+            renderCurrentPage();
+
+            // 총점 계산 (전체 페이지 순회)
+            let totalCorrect = 0;
+            let totalBlanks = 0;
+
+            // 저장된 정답(g_pageQuizzes 내 span 파싱은 복잡하므로 간단히 화면 기준으로 알림)
+            // 실제 정확한 전체 통계는 g_userAnswers와 serverData.answers를 비교하여 계산 가능합니다.
+
+            alert("채점이 완료되었습니다! 틀린 부분의 정답을 확인하며 복습하세요.");
+
+            const btn = document.getElementById('study-btn');
+            btn.innerText = "🔄 다시 풀기";
+            btn.onclick = () => location.reload();
+        }
+    </script>
+</body>
+
+</html>
