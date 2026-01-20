@@ -1,8 +1,9 @@
 # ocr 및 빈칸/원본 저장
 
+import json
 from fastapi import APIRouter, UploadFile, File, Cookie, Form, Body
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Dict, List, Optional
 import os
 # from core.gpt_service import GPTService
 from database import get_db  
@@ -18,8 +19,9 @@ clova_service = CLOVAOCRService(API_KEY)
 # JSON 요청을 위한 모델
 class QuizSaveRequest(BaseModel):
     subject_name: str
-    original: str
-    quiz: str
+    study_name: str
+    original_text: List[str]
+    quiz: Optional[Dict[str, str]] = None
     answers: Optional[List[str]] = []
 
 # 1. OCR 텍스트 추출 엔드포인트 수정
@@ -48,10 +50,14 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
     conn = get_db()
     cur = conn.cursor()
     try:
+        ocr_text_json = json.dumps(data.original_text)
+        answers_json = json.dumps(data.answers) if data.answers else json.dumps([])
+        quiz_json = json.dumps(data.quiz) if data.quiz else json.dumps({})
         cur.execute("""
-            INSERT INTO ocr_data (user_email, subject_name, study_name, ocr_text, answers) 
-            VALUES (%s, %s, %s, %s) RETURNING id
-        """, (user_email, data.subject_name, data.study_name, data.original, data.answers))
+            INSERT INTO ocr_data (user_email, subject_name, study_name, ocr_text, answers, quiz_html) 
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb) RETURNING id
+        """, (user_email, data.subject_name, data.study_name, ocr_text_json, answers_json, quiz_json))
+        
         new_id = cur.fetchone()[0]
         conn.commit()
 
@@ -59,8 +65,8 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
         print(f"ID      : {new_id}")
         print(f"사용자  : {user_email}")
         print(f"과목명  : {data.subject_name}")
-        print(f"키워드수: {len(data.answers)}개")
-        print(f"🔹 원본 내용 미리보기: {data.original}")
+        print(f"키워드수: {len(answers_json)}개")
+        print(f"🔹 원본 내용 미리보기: {ocr_text_json}")
         print("="*45 + "\n")
         
 
