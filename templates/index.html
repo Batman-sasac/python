@@ -381,7 +381,7 @@
                         input.type = 'text';
                         input.className = 'quiz-input';
                         input.dataset.correctAnswer = span.dataset.answer;
-                        input.placeholder = `(${index + 1})`;
+                        input.placeholder = `(${index})`;
                         span.parentNode.replaceChild(input, span);
                     });
 
@@ -398,50 +398,71 @@
         }
 
         async function checkAnswers() {
-            const inputs = document.querySelectorAll('.quiz-input');
-            let score = 0;
-            const userAnswers = [];
-            const correctAnswers = [];
+            // 1. 현재 페이지에 입력된 값부터 g_userAnswers에 최종 저장
+            const currentInputs = document.querySelectorAll('.quiz-input');
+            if (currentInputs.length > 0) {
+                g_userAnswers[g_currentPageIndex] = Array.from(currentInputs).map(input => input.value);
+            }
 
-            inputs.forEach(input => {
-                const userAnswer = input.value.trim();
-                const correctAnswer = input.dataset.correctAnswer;
-                userAnswers.push(userAnswer);
-                correctAnswers.push(correctAnswer);
+            let totalScore = 0;
+            let totalQuestions = 0;
+            const allUserAnswers = [];
+            const allCorrectAnswers = [];
 
-                if (userAnswer === correctAnswer) {
-                    input.classList.remove('wrong');
+            // 2. [핵심] 전체 페이지 데이터를 순회하며 성적 계산
+            Object.keys(g_pageAnswers).forEach(pageIdx => {
+                const correctPageAnswers = g_pageAnswers[pageIdx]; // 해당 페이지 정답 배열
+                const userPageAnswers = g_userAnswers[pageIdx] || []; // 해당 페이지 유저 답안 배열
+
+                totalQuestions += correctPageAnswers.length;
+
+                correctPageAnswers.forEach((correct, imgIdx) => {
+                    const userAns = (userPageAnswers[imgIdx] || "").trim();
+                    const correctAns = correct.trim();
+
+                    allUserAnswers.push(userAns);
+                    allCorrectAnswers.push(correctAns);
+
+                    if (userAns === correctAns) {
+                        totalScore++;
+                    }
+                });
+            });
+
+            // 3. 현재 화면(DOM) 시각적 피드백 반영
+            currentInputs.forEach(input => {
+                const uAns = input.value.trim();
+                const cAns = input.dataset.correctAnswer;
+
+                if (uAns === cAns) {
                     input.classList.add('correct');
-                    score++;
                 } else {
-                    input.classList.remove('correct');
                     input.classList.add('wrong');
-                    input.value = `${userAnswer} (정답: ${correctAnswer})`;
+                    input.value = `${uAns} (정답: ${cAns})`;
                 }
                 input.disabled = true;
             });
 
-            alert(`채점 완료! 총 ${inputs.length}개 중 ${score}개 맞혔습니다.`);
+            // 4. 전역 채점 모드 활성화 (페이지 이동 시 색상 유지용)
+            isGradedMode = true;
 
-            const userTypedAnswers = Array.from(inputs).map(input => input.value.trim());
+            alert(`채점 완료! 총 ${totalQuestions}개 중 ${totalScore}개 맞혔습니다.`);
+
+            // 5. 서버 데이터 전송
             const quizId = document.getElementById('result-area').dataset.quizId;
             if (quizId) {
                 try {
-                    // [수정] 경로를 /quiz/grade로, 키값을 correct_answers로 변경
                     const response = await fetch("/study/grade", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                             quiz_id: parseInt(quizId),
-                            user_answers: userAnswers,
-                            answer: correctAnswers
+                            user_answers: allUserAnswers, // 전체 페이지 답변 합본
+                            answer: allCorrectAnswers     // 전체 페이지 정답 합본
                         })
                     });
-
                     const result = await response.json();
-                    if (result.status === "success") {
-                        console.log(`✅ DB 업데이트 성공! 획득 포인트: ${result.reward_given}`);
-                    }
+                    if (result.status === "success") console.log("✅ DB 업데이트 성공");
                 } catch (e) {
                     console.error("서버 연결 에러:", e);
                 }
