@@ -172,25 +172,21 @@
             saveCurrentInputs();
 
             let htmlContent = "";
-
-            // 1. 저장된 퀴즈 HTML 또는 원본 텍스트 가져오기
             if (g_pageQuizzes[g_currentPageIndex]) {
                 htmlContent = g_pageQuizzes[g_currentPageIndex];
             } else {
                 htmlContent = g_pdfPages[g_currentPageIndex] || "내용이 없습니다.";
             }
 
-            // [핵심] 2. 강조 태그(<strong>, </strong>)만 제거하여 효과 없애기
-            // 정규표현식을 사용하여 텍스트 안의 모든 강조 태그를 삭제합니다.
-            htmlContent = htmlContent.replace(/<strong>/g, "").replace(/<\/strong>/g, "");
+            // [수정] 모든 형태의 strong 태그를 안전하게 제거 (속성 포함)
+            htmlContent = htmlContent.replace(/<strong[^>]*>/gi, "").replace(/<\/strong>/gi, "");
 
-            // 3. 화면 반영 (이제 강조 없는 깨끗한 텍스트가 출력됩니다)
             resultArea.innerHTML = htmlContent;
-
             convertSpansToInputs();
             updatePageUI();
         }
 
+        // 4. 입력창 변환 함수 수정
         function convertSpansToInputs() {
             const spans = document.querySelectorAll('.blank-span');
             const savedAns = g_userAnswers[g_currentPageIndex] || [];
@@ -199,12 +195,25 @@
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'quiz-input';
+
+                // [수정] 브라우저 자동완성 방지를 위해 name과 autocomplete 강화
+                input.name = `quiz_field_${g_currentPageIndex}_${index}`;
+                input.setAttribute('autocomplete', 'new-password'); // 'off'보다 강력함
+                input.id = `input-${g_currentPageIndex}-${index}`;
+
                 const cAns = span.dataset.answer || "";
                 input.dataset.correctAnswer = cAns;
                 input.style.width = (cAns.length * 15 + 30) + "px";
 
-                //사용자 입력값 복원
-                if (savedAns[index] !== undefined) input.value = savedAns[index];
+                input.value = savedAns[index] || "";
+
+                // 실시간 값 저장 (클로저 변수 활용으로 인덱스 고정)
+                const pIdx = g_currentPageIndex;
+                const iIdx = index;
+                input.oninput = (e) => {
+                    if (!g_userAnswers[pIdx]) g_userAnswers[pIdx] = [];
+                    g_userAnswers[pIdx][iIdx] = e.target.value;
+                };
 
                 if (isGradedMode) {
                     const uVal = input.value.trim();
@@ -218,7 +227,51 @@
                         hint.innerText = `(${cVal})`;
                         input.after(hint);
                     }
-                    input.disabled = true; //수정 불가
+                    input.disabled = true;
+                }
+                span.parentNode.replaceChild(input, span);
+            });
+        }
+        function convertSpansToInputs() {
+            const spans = document.querySelectorAll('.blank-span');
+            const savedAns = g_userAnswers[g_currentPageIndex] || [];
+
+            spans.forEach((span, index) => {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'quiz-input';
+                input.setAttribute('autocomplete', 'off');
+                input.id = `input-${g_currentPageIndex}-${index}`;
+
+                const cAns = span.dataset.answer || "";
+                input.dataset.correctAnswer = cAns;
+                input.style.width = (cAns.length * 15 + 30) + "px";
+
+                // 기존 입력값 복원
+                input.value = savedAns[index] || "";
+
+                // 사용자가 입력할 때마다 전역 변수 업데이트 (페이지 이동 시 유지 위함)
+                input.oninput = (e) => {
+                    if (!g_userAnswers[g_currentPageIndex]) {
+                        g_userAnswers[g_currentPageIndex] = [];
+                    }
+                    // 현재 입력된 값만 해당 인덱스에 저장
+                    g_userAnswers[g_currentPageIndex][index] = e.target.value;
+                };
+
+                if (isGradedMode) {
+                    const uVal = input.value.trim();
+                    const cVal = cAns.trim();
+                    if (uVal === cVal) {
+                        input.classList.add('correct');
+                    } else {
+                        input.classList.add('wrong');
+                        const hint = document.createElement('span');
+                        hint.className = 'ans-hint';
+                        hint.innerText = `(${cVal})`; // 오답 옆에 정답 표시
+                        input.after(hint);
+                    }
+                    input.disabled = true;
                 }
                 span.parentNode.replaceChild(input, span);
             });
