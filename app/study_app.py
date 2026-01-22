@@ -127,13 +127,14 @@ from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 
+# 복습화면
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
 async def review_page(request: Request, quiz_id: int):
     conn = get_db()
     # 딕셔너리 형태로 데이터 조회
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT subject_name, study_name, ocr_text, answers, quiz_html FROM ocr_data WHERE id = %s", (quiz_id,))
+        cur.execute("SELECT id, subject_name, study_name, ocr_text, answers, quiz_html FROM ocr_data WHERE id = %s", (quiz_id,))
         quiz_data = cur.fetchone()
         
         if not quiz_data:
@@ -145,6 +146,85 @@ async def review_page(request: Request, quiz_id: int):
             "quiz": quiz_data, # DB 데이터 통째로 전달
             "quiz_json": json.dumps(quiz_data, ensure_ascii=False) # JS용 JSON 문자열
         })
+    finally:
+        cur.close()
+        conn.close()
+
+
+# 복습 완료 시 리워드 제공 & 사용자 답변 저장 
+@app.post("/review-study")
+async def review_study_reward(request : Request,
+user_email: Optional[str] = Cookie(None)):
+    
+    data = await request.json()
+    quiz_id = data.get("quiz_id")
+    all_user_answers = data.get("user_answers")
+    
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+
+        # DB에 정답 리스트 가져오기 
+        cur.execute("SELECT answers FROM ocr_data WHERE id = %s", (quiz_id,))
+
+        row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail= "퀴즈를 찾을 수 없습니다.")
+        try:
+            correct_answers = row[0]
+            print(f"{row}")
+
+            if isinstance(raw_answers, str):
+                correct_answers = json.loads(raw_answers)
+            else:
+                correct_answers = raw_answers
+        except TypeError:
+            print(f"DEBUG: row data is {row}")
+            raise
+
+
+        # 정답 비교
+        score =0
+        results =[]
+
+        for user_ans, real_ans in zip(all_user_answers, correct_answers):
+            is_correct = str(user_ans).strip() == str(real_ans).strip().lower()
+
+            if is_correct:
+                score +=1
+            
+            results.append({
+                "user": user_ans,
+                "real": real_ans,
+                "is_correct": is_correct
+            })
+
+            # 리워드 계산
+            total_reward = score * 2
+
+        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, %s , '복습학습을 통한 정답 리워드')", (user_email, total_reward))
+
+        cur.execute("""
+            UPDATE ocr_data 
+            SET user_answers = %s 
+            WHERE id = %s AND user_email = %s
+        """, (user_ans, quiz_id, user_email))
+
+        cur.execute("UPDATE users SET points = points + %s WHERE email = %s ", (total_reward, user_email))
+
+        cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
+
+        new_total_points = cur.fetchone()[0]
+
+        conn.commit()
+
+        print(f"✅복습 시 사용자가 입력한 답안 {all_user_answers} ")        
+        print(f"⭕ {user_email}님은 복습을 완료하여 {total_reward}  적립 후 총{new_total_points}입니다")
+    except Exception as e:
+        conn.rollback()
+        print(f"오류:{e}")
     finally:
         cur.close()
         conn.close()

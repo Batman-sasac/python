@@ -53,6 +53,7 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
         ocr_text_json = json.dumps(data.original_text)
         answers_json = json.dumps(data.answers) if data.answers else json.dumps([])
         quiz_json = json.dumps(data.quiz) if data.quiz else json.dumps({})
+        
         cur.execute("""
             INSERT INTO ocr_data (user_email, subject_name, study_name, ocr_text, answers, quiz_html) 
             VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb) RETURNING id

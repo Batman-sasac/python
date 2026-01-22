@@ -149,6 +149,10 @@
     <script>
         // 1. 서버 데이터 주입 (Jinja2)
         const serverData = {{ quiz_json | safe }};
+        console.log("전송받은 데이터 확인:", serverData);
+
+        const quizId = serverData.id || serverData.quiz_id || serverData.STUDY_ID;
+        console.log("전송받은 데이터 확인:", quizId);
 
         // 2. 전역 상태
         let g_pdfPages = serverData.ocr_text || [];
@@ -307,7 +311,6 @@
             isGradedMode = true;
             renderCurrentPage();
 
-            const quizId = serverData.id; // serverData에서 ID 추출
 
             const allUserAnswers = [];
             Object.keys(g_pageQuizzes).forEach(pageIdx => {
@@ -316,7 +319,7 @@
             });
 
             try {
-                const response = await fetch("/reward/review-study", {
+                const response = await fetch("/study/review-study", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({

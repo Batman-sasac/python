@@ -3,11 +3,13 @@
 from fastapi import FastAPI, Cookie, Request
 from typing import Optional
 import uvicorn
-from fastapi.responses import HTMLResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
 from app.reward_app import check_attendance_and_reward
 import os
+
+import jwt
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
 if os.path.exists("static"):
@@ -22,7 +24,7 @@ app.include_router(notification_app.app)
 app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
 
-# 브라우저 통신 허용 (CORS)
+# 앱과 통신 허용 (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,41 +34,66 @@ app.add_middleware(
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # 1. 예외 경로 설정 (로그인 없이도 접근 가능해야 하는 곳)
     exclude_paths = [
-    "/", "/auth/login", "/auth/kakao/callback", 
-    "/auth/nickName", "/auth/set-nickname", "/static"
-]
+        "/", "/auth/login", "/auth/kakao/callback", "auto/kakao/mobile", 
+        "/auth/nickName", "/auth/set-nickname", "/static"
+    ]
     
-    # 현재 요청 경로 확인
     path = request.url.path
 
-    # 2. 예외 경로가 아니고, 쿠키에 user_email이 없는 경우
-    if path not in exclude_paths and not any(path.startswith(p) for p in exclude_paths):
-        user_email = request.cookies.get("user_email")
-        
-        if not user_email:
-            # 브라우저 페이지 요청(HTML)인 경우 리다이렉트
-            if "text/html" in request.headers.get("accept", ""):
-                return RedirectResponse(url="/auth/login")
-            # API 요청(JSON)인 경우 401 에러 반환 (프론트엔드 fetch 대응)
-            else:
-                return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    # 1. 예외 경로라면 바로 다음 단계로 진행
+    if path in exclude_paths or any(path.startswith(p) for p in exclude_paths):
+        return await call_next(request)
 
-    # 3. 로그인이 되어있거나 예외 경로라면 정상 진행
-    response = await call_next(request)
-    return response
+    # 2. 헤더에서 토큰 추출
+    auth_header = request.headers.get('Authorization') 
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401, 
+            content={"code": "LOGIN_REQUIRED", "detail": "로그인이 필요합니다."}
+        )
 
-@app.get("/", response_class=HTMLResponse)
-async def login_page(session_user: Optional[str] = Cookie(None)):
-    # 이미 로그인된 사용자라면 인덱스로 바로 이동
-        
-    with open("templates/login.html", "r", encoding="utf-8") as f:
-        content = f.read()
-    
-    # .env의 REST API 키를 HTML의 {{KAKAO_REST_API_KEY}} 부분에 주입
-    rest_key = os.getenv("KAKAO_REST_API_KEY")
-    return content.replace("{{KAKAO_REST_API_KEY}}", str(rest_key))
+    token = auth_header.split(" ")[1]
+
+    try:
+        # 3. 토큰 검증
+        secret_key = os.getenv("JWT_SECRET_KET", "your-secret-key")
+        payload = jwt.decode(token, secret_key, algorithms=["HS256"])
+        user_email = payload.get("email")
+
+        # 4. DB 확인
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT nickName FROM users WHERE email = %s", (user_email,))
+        user_row = cur.fetchone()
+
+        # 닉네임이 없거나 결과가 없는 경우
+        if not user_row or not user_row[0]: # user_row[0]이 nickName
+            return JSONResponse(status_code=403, content={"code": "NICKNAME_REQUIRED"})
+
+    except jwt.PyJWTError:
+        # 토큰 유효하지 않거나 만료된 경우
+        return JSONResponse(status_code=401, content={"code": "INVALID_TOKEN"})
+    except Exception as e:
+        # 기타 DB 에러 등
+        return JSONResponse(status_code=500, content={"detail": str(e)})
+    finally:
+        # 사용한 커서나 연결이 있다면 여기서 닫아주는 것이 좋습니다.
+        cur.close()
+
+    return await call_next(request)
+
+
+
+@app.get("/config")
+async def get_config():
+    # 설정 정보 반환
+    return {
+        "kakao_rest_api_key": os.getenv("KAKAO_REST_API_KEY"),
+        "naver_cilent_id": os.getenv("NAVER_CLIENT_ID")
+    }
+
+"""
 
 @app.get("/index", response_class=HTMLResponse)
 async def index_page(user_email: str = Cookie(None)):
@@ -96,8 +123,9 @@ async def index_page():
     with open("templates/home.html", "r", encoding="utf-8") as f:
         return f.read()
 
+        """
+
 if __name__ == "__main__":
-    host = "127.0.0.1"
     port = 8000
-    print(f"\n🚀 서버 가동 중: http://{host}:{port}")
-    uvicorn.run(app, host=host, port=port)
+    print(f"\n🚀 가동 중:http://192.168.219.110:{port}")
+    uvicorn.run(app, host="0.0.0.0", port=port)

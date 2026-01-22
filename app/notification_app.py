@@ -23,9 +23,13 @@ def start_scheduler():
         print("🚀 복습 알림 스케줄러가 가동되었습니다.")
 
 @app.on_event("shutdown")
-def stop_scheduler():
-    scheduler.shutdown()
-    print("🛑 스케줄러가 종료되었습니다.")
+def shutdown_event():
+    try:
+        if scheduler.running: # 스케줄러가 실행 중인지 확인
+            scheduler.shutdown()
+            print("🚀 스케줄러가 안전하게 종료되었습니다.")
+    except SchedulerNotRunningError:
+        print("⚠️ 스케줄러가 이미 종료되었거나 실행 중이 아닙니다.")
 
 # 복습 알림 
 @app.post("/update")
