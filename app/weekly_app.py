@@ -1,6 +1,6 @@
 # 학습 주기 세팅 및 주마다의 그래프 도출 
 
-from fastapi import APIRouter, Cookie, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 from typing import Optional
 from fastapi.responses import HTMLResponse
 import psycopg2
