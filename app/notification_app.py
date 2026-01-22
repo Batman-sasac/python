@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Cookie, Request
+from fastapi import APIRouter, Body, Request
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 from typing import Optional
@@ -39,7 +39,7 @@ async def update_notification(
 ):
 
     user_email = request.state.user_email
-    
+
     is_notify = payload.get("is_notify")
     remind_time = payload.get("remind_time") # "07:30" 형식
 
