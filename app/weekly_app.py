@@ -16,8 +16,10 @@ app = APIRouter(prefix="/cycle", tags=["Weekly"])
 @app.post("/set-goal")
 async def set_study_goal(
     payload: dict = Body(...), 
-    user_email: Optional[str] = Cookie(None)
+    request : Request
 ):
+
+    user_email = request.state.user_email
     
     cycle_count = payload.get("cycle_count")
     if not cycle_count or int(cycle_count) < 1:
@@ -51,7 +53,8 @@ async def set_study_goal(
 
 
 @app.get("/setting", response_class=HTMLResponse)
-async def index_page(user_email: Optional[str] = Cookie(None)): 
+async def index_page(request: Request): 
+    user_email = request.state.user_email
     print(f"현재 브라우저에서 넘어온 쿠키 값: {user_email}") # 서버 터미널에 출력됨
     
     with open("templates/weeklyTarget.html", "r", encoding="utf-8") as f:
@@ -60,7 +63,10 @@ async def index_page(user_email: Optional[str] = Cookie(None)):
 
 # 출석률*정답률에 따른 그래프 도출을 위한 데이터 
 @app.get("/stats/weekly-growth")
-async def get_weekly_growth(user_email: str = Cookie(None)):
+async def get_weekly_growth(request: Request):
+
+    user_email = request.state.user_email
+
     if not user_email:
         return {"error": "로그인이 필요합니다."}
 
@@ -131,7 +137,10 @@ async def get_weekly_growth(user_email: str = Cookie(None)):
 
 
 @app.get("/learning-stats")
-async def get_learning_stats(user_email: str = Cookie(None)):
+async def get_learning_stats(request: Request):
+
+    user_email = request.state.user_email
+
     if not user_email:
         return {"status": "error", "message": "로그인이 필요합니다."}
 

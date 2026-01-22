@@ -23,8 +23,10 @@ class QuizSubmitRequest(BaseModel):
 @app.post("/grade")
 async def grade_quiz(
     payload: dict = Body(...),
-    user_email: Optional[str] = Cookie(None)
+    request:Request
 ):
+    user_email = request.state.user_email
+    
     # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
     correct_ans = payload.get('answer', [])
     user_ans = payload.get('user_answers', [])
@@ -130,6 +132,9 @@ templates = Jinja2Templates(directory="templates")
 # 복습화면
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
 async def review_page(request: Request, quiz_id: int):
+    
+    user_email = request.state.user_email
+    
     conn = get_db()
     # 딕셔너리 형태로 데이터 조회
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -153,8 +158,9 @@ async def review_page(request: Request, quiz_id: int):
 
 # 복습 완료 시 리워드 제공 & 사용자 답변 저장 
 @app.post("/review-study")
-async def review_study_reward(request : Request,
-user_email: Optional[str] = Cookie(None)):
+async def review_study_reward(request : Request):
+
+    user_email = request.state.user_email
     
     data = await request.json()
     quiz_id = data.get("quiz_id")

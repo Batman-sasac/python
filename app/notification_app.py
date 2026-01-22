@@ -35,8 +35,11 @@ def shutdown_event():
 @app.post("/update")
 async def update_notification(
     payload: dict = Body(...), 
-    user_email: str = Cookie(None)
+    request: Request
 ):
+
+    user_email = request.state.user_email
+    
     is_notify = payload.get("is_notify")
     remind_time = payload.get("remind_time") # "07:30" 형식
 

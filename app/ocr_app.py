@@ -46,7 +46,12 @@ async def run_ocr_endpoint(file: UploadFile = File(...)):
 
 # 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식) 
 @app.post("/ocr/save-test")
-async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(None)):
+async def save_test(data: QuizSaveRequest,
+request: Request):
+
+    user_email = request.state.user_email
+    print(f"user_email:{user_email}")
+
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -82,7 +87,11 @@ async def save_test(data: QuizSaveRequest, user_email: Optional[str] = Cookie(No
 
 # 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
 @app.delete("/ocr/ocr-data/delete/{quiz_id}")
-async def delete_ocr_data(quiz_id: int, user_email: str = Cookie(None)):
+async def delete_ocr_data(quiz_id: int,
+request: Request):
+
+    user_email = request.state.user_email
+    print(f"user_email:{user_email}")
 
     conn = get_db()
     cur = conn.cursor()
@@ -121,10 +130,12 @@ from fastapi import Query, Cookie
 # 학습 목록 /ocr/list
 @app.get("/ocr/list")
 async def get_ocr_list(
-    user_email: str = Cookie(None),
+    request: Request,
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1)
 ):
+    user_email = request.state.user_email
+
     start = (page - 1) * size
 
     conn = get_db()
