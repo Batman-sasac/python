@@ -1,8 +1,8 @@
 import os
 import requests
 import psycopg2
-from fastapi import APIRouter, Response, Cookie, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Response, Request, header
+from fastapi.responses import RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
 from database import get_db
@@ -15,6 +15,9 @@ from fastapi.responses import JSONResponse
 
 load_dotenv()
 app = APIRouter(prefix="/auth", tags=["Auth"])
+
+class UserData(BaseModel):
+    nickName: str
 
 
 # KAKAO 로그인 함수
@@ -137,50 +140,45 @@ async def kakao_callback(code: str):
 # 닉네임 설정 API
 @app.post("/set-nickname")
 async def set_nickname(
-    email: str = Form(...), 
-    nickname: str = Form(...),
-    token: str = Form(...)
+    request : Request, 
+    data: UserData,
     ):
+
+    # 미들웨어에서 넘겨주는 이메일 -> kakao, naver 이메일
+    email = request.state.user_email 
+    nickname = data.nickname
 
     conn = get_db()
     cur = conn.cursor()
-    try:
         try:
-            # 1. 보안검증: 전달받은 토큰이 유효한지 확인
-            secret_key = os.getenv("JWT_SECRET_KEY")
-            payload = jwt.decode(token, secret_key, algorithms=["HS256"])
+            # 닉네임 중복체크
+            cur.execute("SELECT nickName FROM users WHERE nickName = %s", (nickname,))
+            existing_user = cur.fetchone()
 
-            # 토큰 속 이메일과 전달된 이메일이 일치하는지 확인
-            if payload.get("email") != email:
-                return JSONResponse(status_code=403, content={"detail": "권한이 없습니다."})
-        except jwt.PyJWTError:
-            return JSONResponse(status_code=401, content={"detail": "유효하지 않은 토큰입니다."})
-        cur.execute("SELECT nickName FROM users WHERE nickName = %s", (nickname,))
-        if cur.fetchone():
+            # 다른 사용자와 중복일 경우
+            if existing_user and existing_user[0] != email:
             return JSONResponse(
                 status_code=400, 
-                content={"status": "DUPLICATED", "message": "이미 사용 중인 닉네임입니다."}
+                content={"status": "duplicated", "message": "이미 사용 중인 닉네임입니다."}
             )
+            # 2. 닉네임 업데이트
+            cur.execute("UPDATE users SET nickname = %s WHERE email = %s", (nickname, email))
+            conn.commit()
+       
 
-        # 3. 이메일을 기준으로 닉네임 업데이트
-        cur.execute("UPDATE users SET nickname = %s WHERE email = %s", (nickname, email))
-        conn.commit()
+            # 3. 성공 응답 
+            return {
+                "status": "success",
+                "nickname": nickname,
+                "email": email
+            }
+        except Exception as e:
+            print(f"❌ 닉네임 저장 에러: {e}")
+            return JSONResponse(status_code=500, content={"detail": "서버 오류"})
+        finally:
+            cur.close()
+            conn.close()
         
-        # 4. 성공 응답과 사용자 데이터 반환
-        return {
-            "status": "SUCCESS",
-            "message": "닉네임 설정이 완료되었습니다.",
-            "nickname": nickname,
-            "email": email,
-            "token": token  # 기존 토큰을 그대로 쓰거나 필요시 새로 생성해서 반환
+        
     
-        }
-        
-        
-    except Exception as e:
-        print(f"닉네임 설정 중 오류: {e}")
-        return JSONResponse(status_code=500, content={"error": "Internal Server Error"})
-    finally:
-        cur.close()
-        conn.close()
 

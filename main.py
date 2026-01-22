@@ -36,7 +36,7 @@ app.add_middleware(
 async def auth_middleware(request: Request, call_next):
     exclude_paths = [
         "/", "/auth/login", "/auth/kakao/callback", "auto/kakao/mobile", 
-        "/auth/nickName", "/auth/set-nickname", "/static"
+        "/auth/nickName", "/auth/set-nickname", "/static", "/auth/set-nickName"
     ]
     
     path = request.url.path
@@ -59,7 +59,8 @@ async def auth_middleware(request: Request, call_next):
         # 3. 토큰 검증
         secret_key = os.getenv("JWT_SECRET_KET", "your-secret-key")
         payload = jwt.decode(token, secret_key, algorithms=["HS256"])
-        user_email = payload.get("email")
+        # 추출한 이메일을 request.state에 저장 (이후 API에서 사용)
+        request.state.user_email = payload.get("email")
 
         # 4. DB 확인
         conn = get_db()
