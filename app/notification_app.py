@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Body, Request
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
 from typing import Optional
 from database import get_db
 from core.notification_service import scheduler
@@ -8,11 +7,7 @@ from core.notification_service import scheduler
 app = APIRouter()
 
 
-@app.get("/notification", response_class=HTMLResponse)
-async def index_page(): 
-    
-    with open("templates/notification.html", "r", encoding="utf-8") as f:
-        return f.read()
+
 
 
 
@@ -32,7 +27,7 @@ def shutdown_event():
         print("⚠️ 스케줄러가 이미 종료되었거나 실행 중이 아닙니다.")
 
 # 복습 알림 
-@app.post("/update")
+@app.post("/notification-push/update")
 async def update_notification(
     payload: dict = Body(...), 
     request: Request
