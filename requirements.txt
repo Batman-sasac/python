@@ -26,3 +26,11 @@ apscheduler
 # npm install -g firebase-tools
 
 supabase
+
+# pip install supabase
+# pip install postgrest==0.10.6
+
+# fastapi
+# pydantic
+# supabase
+# uvicorn

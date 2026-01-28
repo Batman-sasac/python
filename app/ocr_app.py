@@ -88,12 +88,15 @@ quiz_id: int):
     user_email = request.state.user_email
     print(f"user_email:{user_email}")
 
-    # 1. 이미지 경로 확인 (기존 SELECT)
-        res = supabase.table("ocr_data") \
-            .select("image_url") \
-            .eq("id", quiz_id) \
-            .eq("user_email", user_email) \
+    try:
+        # 1. 이미지 경로 확인
+        res = ( 
+            supabase.table("ocr_data")
+            .select("image_url") 
+            .eq("id", quiz_id)
+            .eq("user_email", user_email) 
             .execute()
+        )
 
         if not res.data:
             return {"status": "error", "message": "데이터를 찾지 못했습니다"}
@@ -102,11 +105,14 @@ quiz_id: int):
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
 
-        # 2. 데이터 삭제 (RLS가 걸려있다면 이메일 체크가 DB에서 자동 수행됨)
+        # 2. 데이터 삭제
         supabase.table("ocr_data").delete().eq("id", quiz_id).eq("user_email", user_email).execute()
         
         return {"status": "success", "message": "삭제 성공했습니다."}
+
+    # try 블록 안에서 에러가 발생하면 이쪽으로 넘어옵니다.
     except Exception as e:
+        print(f"Error occurred: {e}") # 로그를 위해 추가하는 것을 추천합니다.
         return {"status": "error", "message": str(e)}
 
 

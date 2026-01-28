@@ -96,7 +96,8 @@ templates = Jinja2Templates(directory="templates")
 async def review_page(request: Request, quiz_id: int):
     
     user_email = request.state.user_email
-    
+
+    try:
   # .single()을 사용하여 딕셔너리로 바로 가져옴
         res = supabase.table("ocr_data") \
             .select("id, subject_name, study_name, ocr_text, answers, quiz_html") \
@@ -118,8 +119,7 @@ async def review_page(request: Request, quiz_id: int):
 # 복습 완료 시 리워드 제공 & 사용자 답변 저장 
 @app.post("/review-study")
 async def review_study_reward(request : Request):
-
- user_email = request.state.user_email
+    user_email = request.state.user_email
     data = await request.json()
     quiz_id = data.get("quiz_id")
     all_user_answers = data.get("user_answers")
