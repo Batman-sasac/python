@@ -1,15 +1,19 @@
 # /, /home, /index
 
-from fastapi import FastAPI, Cookie, Request
+from fastapi import FastAPI, Request
 from typing import Optional
 import uvicorn
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
+from app.firebase import firebase_app
 from app.reward_app import check_attendance_and_reward
 import os
 
 import jwt
+
+
+from core.notification_service import send_fcm_notification
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
 if os.path.exists("static"):
@@ -23,6 +27,7 @@ app.include_router(study_app.app)
 app.include_router(notification_app.app)
 app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
+app.include_router(firebase_app.app)
 
 # 앱과 통신 허용 (CORS)
 app.add_middleware(

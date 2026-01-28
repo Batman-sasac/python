@@ -1,7 +1,7 @@
 # ocr 및 빈칸/원본 저장
 
 import json
-from fastapi import APIRouter, UploadFile, File, Form, Body
+from fastapi import APIRouter, UploadFile, File, Form, Body, Request
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import os
@@ -87,8 +87,8 @@ request: Request):
 
 # 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
 @app.delete("/ocr/ocr-data/delete/{quiz_id}")
-async def delete_ocr_data(quiz_id: int,
-request: Request):
+async def delete_ocr_data(request: Request,
+quiz_id: int):
 
     user_email = request.state.user_email
     print(f"user_email:{user_email}")

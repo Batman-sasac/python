@@ -17,3 +17,10 @@ pillow
 psycopg2-binary
 # 네이버 클로바 API 호출
 requests
+
+#firebase
+firebase-admin
+
+apscheduler
+
+# npm install -g firebase-tools

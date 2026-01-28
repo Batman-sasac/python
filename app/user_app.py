@@ -1,12 +1,12 @@
 import os
 import requests
 import psycopg2
-from fastapi import APIRouter, Response, Request, header
+from fastapi import APIRouter, Response, Request, Header
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
 from database import get_db
-
+from pydantic import BaseModel
 from app.security_app import create_jwt_token
 import jwt
 from datetime import datetime, timedelta
@@ -126,7 +126,7 @@ async def kakao_callback(code: str):
             }
         # 닉네임이 있는 경우 정상 로그인
         return{
-            "status": "SUCCESS",
+            "status": "success",
             "token": token,
             "email": user_email,
             "nickName": user_row[0]
@@ -150,34 +150,34 @@ async def set_nickname(
 
     conn = get_db()
     cur = conn.cursor()
-        try:
+    try:
             # 닉네임 중복체크
-            cur.execute("SELECT nickName FROM users WHERE nickName = %s", (nickname,))
-            existing_user = cur.fetchone()
+        cur.execute("SELECT nickName FROM users WHERE nickName = %s", (nickname,))
+        existing_user = cur.fetchone()
 
-            # 다른 사용자와 중복일 경우
-            if existing_user and existing_user[0] != email:
+        # 다른 사용자와 중복일 경우
+        if existing_user and existing_user[0] != email:
             return JSONResponse(
                 status_code=400, 
                 content={"status": "duplicated", "message": "이미 사용 중인 닉네임입니다."}
             )
-            # 2. 닉네임 업데이트
-            cur.execute("UPDATE users SET nickname = %s WHERE email = %s", (nickname, email))
-            conn.commit()
+        # 2. 닉네임 업데이트
+        cur.execute("UPDATE users SET nickname = %s WHERE email = %s", (nickname, email))
+        conn.commit()
        
 
-            # 3. 성공 응답 
-            return {
-                "status": "success",
-                "nickname": nickname,
-                "email": email
-            }
-        except Exception as e:
-            print(f"❌ 닉네임 저장 에러: {e}")
-            return JSONResponse(status_code=500, content={"detail": "서버 오류"})
-        finally:
-            cur.close()
-            conn.close()
+        # 3. 성공 응답 
+        return {
+            "status": "success",
+            "nickname": nickname,
+            "email": email
+        }
+    except Exception as e:
+        print(f"❌ 닉네임 저장 에러: {e}")
+        return JSONResponse(status_code=500, content={"detail": "서버 오류"})
+    finally:
+        cur.close()
+        conn.close()
         
         
     

@@ -1,6 +1,6 @@
 # 학습 주기 세팅 및 주마다의 그래프 도출 
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from typing import Optional
 from fastapi.responses import HTMLResponse
 import psycopg2
@@ -15,8 +15,8 @@ app = APIRouter(prefix="/cycle", tags=["Weekly"])
 
 @app.post("/set-goal")
 async def set_study_goal(
-    payload: dict = Body(...), 
-    request : Request
+    request : Request,
+    payload: dict = Body(...)
 ):
 
     user_email = request.state.user_email

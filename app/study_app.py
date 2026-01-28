@@ -22,8 +22,8 @@ class QuizSubmitRequest(BaseModel):
 # 채점 로직
 @app.post("/grade")
 async def grade_quiz(
-    payload: dict = Body(...),
-    request:Request
+    request : Request,
+    payload: dict = Body(...)
 ):
     user_email = request.state.user_email
     
