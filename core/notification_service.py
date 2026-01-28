@@ -1,6 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
-from database import get_db
+from database import supabase
 
 import firebase_admin
 from firebase_admin import credentials, messaging
