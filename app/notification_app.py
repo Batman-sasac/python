@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, Request
 from pydantic import BaseModel
 from typing import Optional
-from database import get_db
+from database import supabase
 from core.notification_service import scheduler
 from datetime import datetime
 
@@ -11,27 +11,33 @@ app = APIRouter()
 # 매 분마다 실행될 작업
 def check_and_send_reminders():
     now = datetime.now().strftime("%H:%M")
-    conn = get_db()
-    cur = conn.cursor()
-    
     try:
-        # 알림이 켜져있고, 시간이 일치하며, 토큰이 있는 유저 조회
-        cur.execute("""
-            SELECT email, fcm_token FROM users 
-            WHERE is_notify = True AND remind_time = %s AND fcm_token IS NOT NULL
-        """, (now,))
+        # 알림이 켜져있고, 시간이 일치하며, 토큰이 있는 유저 모두 조회
+        # service_role_key를 사용 중이라면 RLS를 무시하고 전체 유저를 검색합니다.
+        response = supabase.table("users") \
+            .select("email, fcm_token") \
+            .eq("is_notify", True) \
+            .eq("remind_time", now) \
+            .not_.is_("fcm_token", "null") \
+            .execute()
         
-        targets = cur.fetchall()
-        for email, token in targets:
+        targets = response.data
+        
+        for user in targets:
+            email = user.get("email")
+            token = user.get("fcm_token")
+            
+            # FCM 알림 발송 함수 호출
             send_fcm_notification(
                 token=token,
                 title="복습할 시간입니다! 📚",
                 body="오늘 공부한 내용을 잊기 전에 확인해보세요."
             )
             print(f"🔔 알림 발송 완료: {email}")
-    finally:
-        cur.close()
-        conn.close()
+            
+    except Exception as e:
+        print(f"❌ 스케줄러 실행 중 오류: {e}")
+
 
 @app.on_event("startup")
 def start_scheduler():
@@ -65,17 +71,17 @@ async def update_notification(
     conn = get_db()
     cur = conn.cursor()
     try:
-        cur.execute("""
-            UPDATE users 
-            SET is_notify = %s, remind_time = %s 
-            WHERE email = %s
-        """, (is_notify, remind_time, user_email))
-        conn.commit()
-        print(f"알림 설정 완료:{remind_time}")
+        supabase.table("users") \
+            .update({
+                "is_notify": is_notify, 
+                "remind_time": remind_time
+            }) \
+            .eq("email", user_email) \
+            .execute()
+            
+        print(f"✅ 알림 설정 완료: {user_email} -> {remind_time}")
         return {"status": "success", "message": "알림 설정이 저장되었습니다."}
+        
     except Exception as e:
-        conn.rollback()
+        print(f"❌ 알림 업데이트 에러: {e}")
         return {"status": "error", "message": str(e)}
-    finally:
-        cur.close()
-        conn.close()

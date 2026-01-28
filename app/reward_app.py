@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from database import get_db
+from database import supabase
 from datetime import date
 from typing import Optional
 
@@ -10,40 +10,45 @@ app = APIRouter(tags=["Reward"])
 async def check_attendance_and_reward(user_email: str):
     if not user_email: return False, 0
     
-    conn = get_db()
-    cur = conn.cursor()
     today = date.today()
 
     try:
         # 1. 중복 확인
-        cur.execute("SELECT id FROM reward_history WHERE user_email = %s AND reason = '출석체크' AND DATE(created_at) = %s", (user_email, today))
+        check_res = supabase.table("reward_history") \
+            .select("id") \
+            .eq("user_email", user_email) \
+            .eq("reason", "출석체크") \
+            .gte("created_at", f"{today}T00:00:00") \
+            .lt("created_at", f"{today}T23:59:59") \
+            .execute()
         
-        if cur.fetchone():
-            # 이미 받은 경우, 현재 포인트만 조회해서 반환
-            cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
-            current_pt = cur.fetchone()[0]
+        # 이미 데이터가 존재한다면 현재 포인트만 조회해서 반환
+        if check_res.data:
+            user_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+            current_pt = user_res.data.get("points", 0)
             return False, current_pt
 
-        # 2. 리워드 지급 및 포인트 합산
-        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, 10, '출석체크')", (user_email,))
-        
+        # 2. 리워드 이력 추가 (INSERT)
+        supabase.table("reward_history").insert({
+            "user_email": user_email,
+            "reward_amount": 10,
+            "reason": "출석체크"
+        }).execute()
 
-        cur.execute("UPDATE users SET points = points + 1 WHERE email = %s", (user_email,))
-        
-        # 3. 업데이트 된 최종 포인트 조회
-        cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
-        new_total_points = cur.fetchone()[0]
+        # 3. 유저 포인트 업데이트 (UPDATE)
+        # 먼저 현재 포인트를 가져와서 +10 (기존 코드에서는 +1이었으나 맥락상 10P 지급으로 수정)
+        user_data_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+        current_points = user_data_res.data.get("points", 0)
+        new_total_points = current_points + 10
 
-        conn.commit()
+        update_res = supabase.table("users") \
+            .update({"points": new_total_points}) \
+            .eq("email", user_email) \
+            .execute()
+
         print(f"🎊 [리워드 지급] {user_email}: 10P 완료 (총: {new_total_points}P)")
-        return True, new_total_points # 성공 여부와 포인트를 함께 반환
+        return True, new_total_points
 
     except Exception as e:
-        conn.rollback()
-        print(f"❌ 오류: {e}")
+        print(f"❌ 리워드 지급 중 오류 발생: {e}")
         return False, 0
-    finally:
-        cur.close()
-        conn.close()
-
-

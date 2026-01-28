@@ -5,8 +5,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Body, Request
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import os
-# from core.gpt_service import GPTService
-from database import get_db  
+from database import supabase 
 from core.clova_ocr_service import CLOVAOCRService
 
 app = APIRouter(tags=["OCR"])
@@ -52,20 +51,18 @@ request: Request):
     user_email = request.state.user_email
     print(f"user_email:{user_email}")
 
-    conn = get_db()
-    cur = conn.cursor()
+   
     try:
-        ocr_text_json = json.dumps(data.original_text)
-        answers_json = json.dumps(data.answers) if data.answers else json.dumps([])
-        quiz_json = json.dumps(data.quiz) if data.quiz else json.dumps({})
-        
-        cur.execute("""
-            INSERT INTO ocr_data (user_email, subject_name, study_name, ocr_text, answers, quiz_html) 
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb) RETURNING id
-        """, (user_email, data.subject_name, data.study_name, ocr_text_json, answers_json, quiz_json))
-        
-        new_id = cur.fetchone()[0]
-        conn.commit()
+        insert_data = {
+            "user_email": user_email,
+            "subject_name": data.subject_name,
+            "study_name": data.study_name,
+            "ocr_text": data.original_text,   # 리스트 그대로 저장
+            "answers": data.answers or [],     # 리스트 그대로 저장
+            "quiz_html": data.quiz or {}      # 딕셔너리 그대로 저장
+        }
+
+        response = supabase.table("ocr_data").insert(insert_data).execute()
 
         print("\n" + "✅"*10 + " OCR 데이터 저장 성공 " + "✅"*10)
         print(f"ID      : {new_id}")
@@ -75,14 +72,12 @@ request: Request):
         print(f"🔹 원본 내용 미리보기: {ocr_text_json}")
         print("="*45 + "\n")
         
+        new_id = response.data[0]['id']
 
         return {"status": "success", "quiz_id": new_id}
     except Exception as e:
-        conn.rollback()
+        print(f"저장 에러: {e}")
         return {"status": "error", "message": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
 
 # 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
@@ -93,35 +88,26 @@ quiz_id: int):
     user_email = request.state.user_email
     print(f"user_email:{user_email}")
 
-    conn = get_db()
-    cur = conn.cursor()
+    # 1. 이미지 경로 확인 (기존 SELECT)
+        res = supabase.table("ocr_data") \
+            .select("image_url") \
+            .eq("id", quiz_id) \
+            .eq("user_email", user_email) \
+            .execute()
 
-    try:
-        cur.execute("SELECT image_url FROM ocr_data WHERE id = %s AND user_email = %s",
-        (quiz_id, user_email))
+        if not res.data:
+            return {"status": "error", "message": "데이터를 찾지 못했습니다"}
 
-        row = cur.fetchone()
-
-        if not row:
-            return{"status": "error", "message": "데이터를 찾지 못했습니다"}
-
-        file_path = row[0]
-        
+        file_path = res.data[0].get("image_url")
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
 
-        cur.execute("DELETE FROM ocr_data WHERE id = %s AND user_email = %s", (quiz_id, user_email))
-        conn.commit()
+        # 2. 데이터 삭제 (RLS가 걸려있다면 이메일 체크가 DB에서 자동 수행됨)
+        supabase.table("ocr_data").delete().eq("id", quiz_id).eq("user_email", user_email).execute()
         
-        print(f"해당 파일 삭제 완료:{quiz_id}")
-        return{"status": "success", "message":"삭제 성공했습니다."}
-
+        return {"status": "success", "message": "삭제 성공했습니다."}
     except Exception as e:
-        conn.rollback()
-        return{"status": "error", "message": str(e)}
-    finally:
-        cur.close()
-        conn.close()
+        return {"status": "error", "message": str(e)}
 
 
 # 학습 목록 /ocr/list
@@ -142,53 +128,34 @@ async def get_ocr_list(
     cur = conn.cursor()
 
     try:
-        cur.execute("""
-            SELECT
-                id,
-                study_name,
-                subject_name,
+        # PostgreSQL의 복잡한 CASE 문은 RPC(함수)를 쓰거나 
+        # 원본 데이터를 가져온 뒤 파이썬에서 가공하는 것이 SDK에서 더 깔끔합니다.
+        response = supabase.table("ocr_data") \
+            .select("id, study_name, subject_name, ocr_text, created_at") \
+            .eq("user_email", user_email) \
+            .order("created_at", desc=True) \
+            .range(start, end) \
+            .execute()
 
-                CASE
-                    WHEN LENGTH(ocr_text::TEXT) > 50
-                        THEN SUBSTRING(ocr_text::TEXT FROM 1 FOR 50) || '...'
-                    ELSE ocr_text::TEXT
-                END AS ocr_preview,
-
-                CASE
-                    WHEN created_at::DATE = CURRENT_DATE THEN '오늘'
-                    WHEN created_at >= CURRENT_DATE - INTERVAL '7 days'
-                        THEN (CURRENT_DATE - created_at::DATE) || '일 전'
-                    ELSE TO_CHAR(created_at::DATE, 'YYYY-MM-DD')
-                END AS created_at_display
-
-            FROM public.ocr_data
-            WHERE user_email = %s
-            ORDER BY created_at DESC
-            LIMIT %s OFFSET %s
-        """, (user_email, size, start))
-
-        rows = cur.fetchall()
-
-        result = []
-        for row in rows:
-            result.append({
-                "id": row[0],
-                "study_name": row[1],
-                "subject_name": row[2],
-                "ocr_preview": row[3],
-                "created_at": row[4]
+        # 데이터 가공 (미리보기 및 날짜 표시)
+        formatted_data = []
+        for item in response.data:
+            ocr_str = str(item['ocr_text'])
+            formatted_data.append({
+                "id": item['id'],
+                "study_name": item['study_name'],
+                "subject_name": item['subject_name'],
+                "ocr_preview": (ocr_str[:50] + "...") if len(ocr_str) > 50 else ocr_str,
+                "created_at": item['created_at'] # 날짜 포맷팅은 필요시 파이썬에서 추가
             })
 
         return {
             "page": page,
             "size": size,
-            "data": result
+            "data": formatted_data
         }
-
-    finally:
-        cur.close()
-        conn.close()
-
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 

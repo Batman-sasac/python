@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Body, Request
 from pydantic import BaseModel
 from typing import List, Optional
-from database import get_db
+from database import supabase
 import json
 import psycopg2
 import psycopg2.extras
@@ -32,82 +32,49 @@ async def grade_quiz(
     user_ans = payload.get('user_answers', [])
     quiz_id = payload.get('quiz_id')
 
-    if not correct_ans:
-        return {"status": "error", "message": "정답 데이터가 없습니다."}
-    
-    if not user_email:
-        return {"status": "error", "message": "로그인이 필요합니다."}
+    if not correct_ans or not user_email:
+        return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
 
-    # 2. 채점 로직
-    score = 0
+    # 채점 로직
     correct_count = 0
     total_questions = len(correct_ans)
     results = []
 
     for u, c in zip(user_ans, correct_ans):
-        # 공백 제거 후 비교
         is_correct = (str(u).strip() == str(c).strip())
         if is_correct:
             correct_count += 1
         results.append({"user": u, "correct": c, "is_correct": is_correct})
 
-    score = correct_count # 맞춘 개수
-    
-    # 3. 리워드 계산
-    reward = score  # 기본 1점씩
-    
-
-    # 4. DB 저장
-    conn = get_db()
-    cur = conn.cursor()
+    reward = correct_count
+    is_all_correct = (correct_count == total_questions)
 
     try:
+        # [1] 답변 업데이트 (JSONB 자동 처리)
+        supabase.table("ocr_data") \
+            .update({"user_answers": user_ans}) \
+            .eq("id", quiz_id) \
+            .eq("user_email", user_email).execute()
 
-        # 1. 데이터 타입 변환 (리스트 -> JSON 문자열)
-        user_ans_str = json.dumps(user_ans)
-    
-        # 올백 여부 계산 (print문에서 쓰기 위해 선언)
-        is_all_correct = (correct_count == total_questions)
+        # [2] 학습 로그 기록
+        supabase.table("study_logs").insert({
+            "quiz_id": quiz_id, 
+            "user_email": user_email
+        }).execute()
 
-    # [1] 공통 작업: 사용자의 답변 저장
-        cur.execute("""
-            UPDATE ocr_data 
-            SET user_answers = %s 
-            WHERE id = %s AND user_email = %s
-        """, (user_ans, quiz_id, user_email))
-
-    # [2] 공통 작업: 학습 로그 저장 (여기에 한 번만 작성)
-        cur.execute("""
-            INSERT INTO study_logs(quiz_id, user_email) 
-            VALUES(%s, %s)
-        """, (quiz_id, user_email))
-
-    # [3] 조건부 작업: 리워드가 있을 때만 실행
+        # [3] 리워드 지급 (있을 때만)
         if reward > 0:
-            cur.execute("""
-                INSERT INTO reward_history (user_email, reward_amount, reason) 
-                VALUES (%s, %s, %s)
-            """, (user_email, reward, f"퀴즈 정답: {correct_count}/{total_questions}"))
-        
-            cur.execute("""
-                UPDATE users 
-                SET points = points + %s 
-                WHERE email = %s
-            """, (reward, user_email))
+            supabase.table("reward_history").insert({
+                "user_email": user_email,
+                "reward_amount": reward,
+                "reason": f"퀴즈 정답: {correct_count}/{total_questions}"
+            }).execute()
 
-        # [4] 최종 확정
-        conn.commit()
+            # 포인트 합산 (현재 포인트 조회 후 업데이트)
+            user_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+            new_points = (user_res.data.get("points") or 0) + reward
+            supabase.table("users").update({"points": new_points}).eq("email", user_email).execute()
 
-        # 터미널 로그 출력
-        print("\n" + "🎯"*10 + " 채점 결과 " + "🎯"*10)
-        print(f"사용자: {user_email}")
-        print(f"정답률: {correct_count}/{total_questions}")
-        print(f"🔹 사용자가 작성한 답변 내용: {user_ans}")
-        print(f"최종 리워드: {reward}P {'(올백 보너스!)' if is_all_correct else ''}")
-        print(f"✅ 사용자의 답변 저장 완료 (ID: {quiz_id})")
-
-
-        
         return {
             "status": "success",
             "score": correct_count,
@@ -117,13 +84,8 @@ async def grade_quiz(
             "results": results
         }
     except Exception as e:
-        if conn: conn.rollback()
-        print(f"❌ 리워드 저장 오류: {e}")
-        return {"status": "error", "message": f"리워드 저장 실패: {str(e)}"}
-    finally:
-        cur.close()
-        conn.close()
-
+        print(f"❌ 오류 발생: {e}")
+        return {"status": "error", "message": str(e)}
 
 from fastapi.templating import Jinja2Templates
 
@@ -135,102 +97,61 @@ async def review_page(request: Request, quiz_id: int):
     
     user_email = request.state.user_email
     
-    conn = get_db()
-    # 딕셔너리 형태로 데이터 조회
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        cur.execute("SELECT id, subject_name, study_name, ocr_text, answers, quiz_html FROM ocr_data WHERE id = %s", (quiz_id,))
-        quiz_data = cur.fetchone()
+  # .single()을 사용하여 딕셔너리로 바로 가져옴
+        res = supabase.table("ocr_data") \
+            .select("id, subject_name, study_name, ocr_text, answers, quiz_html") \
+            .eq("id", quiz_id) \
+            .eq("user_email", user_email) \
+            .single().execute()
         
-        if not quiz_data:
-            return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
-
-        # [핵심] JSON 데이터를 문자열로 변환하여 템플릿에 전달
+        quiz_data = res.data
+        
         return templates.TemplateResponse("review_study.html", {
             "request": request,
-            "quiz": quiz_data, # DB 데이터 통째로 전달
-            "quiz_json": json.dumps(quiz_data, ensure_ascii=False) # JS용 JSON 문자열
+            "quiz": quiz_data,
+            "quiz_json": json.dumps(quiz_data, ensure_ascii=False)
         })
-    finally:
-        cur.close()
-        conn.close()
+    except Exception:
+        return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
 
 
 # 복습 완료 시 리워드 제공 & 사용자 답변 저장 
 @app.post("/review-study")
 async def review_study_reward(request : Request):
 
-    user_email = request.state.user_email
-    
+ user_email = request.state.user_email
     data = await request.json()
     quiz_id = data.get("quiz_id")
     all_user_answers = data.get("user_answers")
-    
-    conn = get_db()
-    cur = conn.cursor()
 
     try:
+        # DB에서 정답 가져오기
+        res = supabase.table("ocr_data").select("answers").eq("id", quiz_id).single().execute()
+        correct_answers = res.data.get("answers", [])
 
-        # DB에 정답 리스트 가져오기 
-        cur.execute("SELECT answers FROM ocr_data WHERE id = %s", (quiz_id,))
+        # 채점
+        score = sum(1 for u, c in zip(all_user_answers, correct_answers) 
+                    if str(u).strip() == str(c).strip().lower())
+        total_reward = score * 2
 
-        row = cur.fetchone()
+        # 리워드 이력 추가
+        supabase.table("reward_history").insert({
+            "user_email": user_email,
+            "reward_amount": total_reward,
+            "reason": "복습학습을 통한 정답 리워드"
+        }).execute()
 
-        if not row:
-            raise HTTPException(status_code=404, detail= "퀴즈를 찾을 수 없습니다.")
-        try:
-            correct_answers = row[0]
-            print(f"{row}")
+        # 답변 업데이트
+        supabase.table("ocr_data") \
+            .update({"user_answers": all_user_answers}) \
+            .eq("id", quiz_id).execute()
 
-            if isinstance(raw_answers, str):
-                correct_answers = json.loads(raw_answers)
-            else:
-                correct_answers = raw_answers
-        except TypeError:
-            print(f"DEBUG: row data is {row}")
-            raise
+        # 유저 포인트 합산 업데이트
+        user_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+        new_total_points = (user_res.data.get("points") or 0) + total_reward
+        supabase.table("users").update({"points": new_total_points}).eq("email", user_email).execute()
 
-
-        # 정답 비교
-        score =0
-        results =[]
-
-        for user_ans, real_ans in zip(all_user_answers, correct_answers):
-            is_correct = str(user_ans).strip() == str(real_ans).strip().lower()
-
-            if is_correct:
-                score +=1
-            
-            results.append({
-                "user": user_ans,
-                "real": real_ans,
-                "is_correct": is_correct
-            })
-
-            # 리워드 계산
-            total_reward = score * 2
-
-        cur.execute("INSERT INTO reward_history (user_email, reward_amount, reason) VALUES (%s, %s , '복습학습을 통한 정답 리워드')", (user_email, total_reward))
-
-        cur.execute("""
-            UPDATE ocr_data 
-            SET user_answers = %s 
-            WHERE id = %s AND user_email = %s
-        """, (user_ans, quiz_id, user_email))
-
-        cur.execute("UPDATE users SET points = points + %s WHERE email = %s ", (total_reward, user_email))
-
-        cur.execute("SELECT points FROM users WHERE email = %s", (user_email,))
-
-        new_total_points = cur.fetchone()[0]
-
-        conn.commit()
-
-        print(f"✅복습 시 사용자가 입력한 답안 {all_user_answers} ")        
-        print(f"⭕ {user_email}님은 복습을 완료하여 {total_reward}  적립 후 총{new_total_points}입니다")
+        return {"status": "success", "new_points": new_total_points}
     except Exception as e:
-        conn.rollback()
-        print(f"오류:{e}")
-    finally:
-        cur.close()
-        conn.close()
+        print(f"오류: {e}")
+        return {"status": "error", "message": str(e)}
