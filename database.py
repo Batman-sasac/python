@@ -1,18 +1,12 @@
 import psycopg2
 import os
 from dotenv import load_dotenv
+from supabase import create_client, Client
+
 
 load_dotenv()
 
-def get_db():
-    try:
-        conn = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            database=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASS")
-        )
-        return conn
-    except Exception as e:
-        print(f"❌ DB 연결 실패: {e}")
-        return None
+url: str = os.getenv("SUPABASE_URL")
+key: str = os.getenv("SUPABASE_ANON_KEY")
+
+supabase: Client = create_client(url, key)

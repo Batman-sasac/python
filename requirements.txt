@@ -24,3 +24,5 @@ firebase-admin
 apscheduler
 
 # npm install -g firebase-tools
+
+supabase
