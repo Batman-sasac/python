@@ -1,3 +1,4 @@
 .env
 google-key.json
 secrets/
+test/

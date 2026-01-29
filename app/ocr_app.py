@@ -23,6 +23,22 @@ class QuizSaveRequest(BaseModel):
     quiz: Optional[Dict[str, str]] = None
     answers: Optional[List[str]] = []
 
+
+# 예상 소요 시간 반환
+@app.post("/ocr/estimate")
+async def get_estimate(file: UploadFile = File(...)):
+    # 가볍게 파일 정보만 읽어서 시간 계산
+    file_bytes = await file.read()
+
+    files_data = []
+    for file in files:
+        content = await file.read()
+        files_data.append({"filename": file.filename, "bytes": content})
+    
+    result_msg = service.get_estimation_message(files_data)
+    
+    return {"estimated_time": result_msg}
+
 # 1. OCR 텍스트 추출 엔드포인트 수정
 @app.post("/ocr")
 async def run_ocr_endpoint(file: UploadFile = File(...)):
@@ -36,7 +52,10 @@ async def run_ocr_endpoint(file: UploadFile = File(...)):
             return result
 
         # 2. 프론트엔드 JS가 data.keywords를 사용하므로 키 이름을 일치시켜 반환
-        return result
+        return {
+        "status": "success",
+        "data": result
+    }
     
     except Exception as e:
         print(f"서버 내부 에러: {e}")

@@ -7,6 +7,7 @@ import os
 from openai import OpenAI
 import io  
 from pdf2image import convert_from_bytes 
+from pypdf import PdfReader
 
 class CLOVAOCRService:
     def __init__(self, api_key):
@@ -19,8 +20,44 @@ class CLOVAOCRService:
         self.clova_url = os.getenv("CLOVA_OCR_URL")
         self.clova_secret = os.getenv("CLOVA_OCR_SECRET")
 
-    def extract_text_with_clova(self, file_bytes, filename):
+    
+    def get_estimation_message(self, files_data):
+        """
+        [Service]
+        - 입력: [{'filename': '...', 'bytes': b'...'}, ...]
+        - 로직: PDF(40초/장), 이미지(30초/장) 합산
+        """
+        total_seconds = 0
+
+        for file in files_data:
+            filename = file.get('filename', '')
+            file_bytes = file.get('bytes', b'')
+            file_ext = filename.split('.')[-1].lower()
+
+            if file_ext == 'pdf':
+                try:
+                    reader = PdfReader(io.BytesIO(file_bytes), strict=False)
+                    pages = len(reader.pages)
+                    # PDF: 페이지당 40초
+                    total_seconds += (max(pages, 1) * 40)
+                except Exception:
+                    total_seconds += 40
+            else:
+                # 이미지(jpg, png 등): 장당 30초
+                total_seconds += 30
+
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        
+        if minutes > 0:
+            return f"약 {minutes}분 {seconds}초 소요 예정"
+        return f"약 {seconds}초 소요 예정"
+    
+    
+    
+    def extract_text_with_clova(files_data):
         """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출"""
+
         pages_text = []
         
         try:
@@ -96,10 +133,15 @@ class CLOVAOCRService:
     
     def process_file(self, file_bytes, filename):
         """텍스트 추출 및 페이지별 GPT 키워드 추출 실행"""
+
+        total_start = time.time()
         
         # 1. OCR 텍스트 추출 (리스트 형태로 받음)
         all_pages_text = self.extract_text_with_clova(file_bytes, filename)
         
+
+        gpt_start = time.time()
+
         if not all_pages_text:
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
 
@@ -143,11 +185,17 @@ class CLOVAOCRService:
                 print(f"페이지 {i+1} GPT 에러: {e}")
                 pages_keywords.append([]) 
 
+        gpt_duration = time.time() - gpt_start
+        print(f"⏱️ [GPT 키워드 추출 소요 시간]: {gpt_duration:.2f}초")
+        
+        total_duration = time.time() - total_start
+        print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초")
         # 3. 최종 결과 반환
         return {
             "status": "success",
             "pages": all_pages_text,
             "pages_keywords": pages_keywords,
             "original_text": all_pages_text[0] if all_pages_text else "",
-            "keywords": pages_keywords[0] if pages_keywords else []
+            "keywords": pages_keywords[0] if pages_keywords else [],
+            "total_duration": total_duration,
         }
