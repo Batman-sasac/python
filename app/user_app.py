@@ -1,7 +1,7 @@
 import os
 import requests
 import psycopg2
-from fastapi import APIRouter, Response, Request, Header
+from fastapi import APIRouter, Response, Request, Header, Form
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
@@ -19,9 +19,69 @@ app = APIRouter(prefix="/auth", tags=["Auth"])
 class UserData(BaseModel):
     nickname: str # 소문자 nickname으로 통일
 
-# --- [1. 카카오 로그인 콜백] ---
+# --- [1. 카카오 로그인 콜백 - GET으로 code 받고 HTML 반환] ---
 @app.get("/kakao/mobile")
-async def kakao_callback(code: str):
+async def kakao_callback_redirect(code: str):
+    """WebView에서 리다이렉트될 때 호출. HTML 페이지를 반환하여 앱에 code 전달"""
+    from fastapi.responses import HTMLResponse
+    
+    # 웹과 모바일 모두 지원하는 HTML
+    html_content = f"""
+    <html>
+    <head>
+        <title>로그인 중...</title>
+        <meta charset="utf-8">
+        <style>
+            body {{ 
+                display: flex; 
+                justify-content: center; 
+                align-items: center; 
+                height: 100vh; 
+                margin: 0;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            }}
+            .container {{ text-align: center; }}
+            h3 {{ color: #5E82FF; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h3>✓ 로그인 성공!</h3>
+            <p>잠시 후 자동으로 돌아갑니다...</p>
+        </div>
+        <script>
+            const code = "{code}";
+            
+            // 웹 환경: postMessage로 부모 창에 code 전달
+            if (window.opener) {{
+                window.opener.postMessage({{ type: 'OAUTH_CODE', code: code }}, '*');
+                setTimeout(() => window.close(), 500);
+            }}
+            // 모바일 WebView: custom scheme으로 리다이렉트
+            else {{
+                try {{
+                    window.location.href = "bat://oauth-callback?code=" + code;
+                }} catch(e) {{
+                    console.log('Redirect failed:', e);
+                }}
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+# --- [1-2. 카카오 로그인 처리 - POST로 실제 로그인] ---
+@app.post("/kakao/mobile")
+async def kakao_callback(code: str = Form(...)):
+    from fastapi import Form
+    
+    # FormData로 code 받기
+    if not code:
+        return JSONResponse(status_code=400, content={"error": "code가 필요합니다"})
+    
+    print(f"[카카오 로그인] code 수신: {code[:20]}...")
+    
     # 1. 카카오 Access Token 발급
     token_url = "https://kauth.kakao.com/oauth/token"
     token_data = {
@@ -47,14 +107,12 @@ async def kakao_callback(code: str):
     social_id = str(user_info_res.get("id"))
     user_email = user_info_res.get("kakao_account", {}).get("email", "")
 
-    
-
     try:
         # 3. 기존 유저 확인
         user_res = supabase.table("users").select("nickname").eq("social_id", social_id).execute()
         user_data = user_res.data
 
-        if user_row is None:
+        if not user_data:
             # [신규 유저] DB 저장 (닉네임은 NULL로 시작)
             supabase.table("users").insert({
                 "social_id": social_id, 
@@ -62,6 +120,7 @@ async def kakao_callback(code: str):
                 "nickname": None
             }).execute()
             
+            print(f"[카카오 로그인] 신규 유저: {user_email}")
             # 신규 유저는 닉네임 설정 페이지로 유도 (클라이언트에서 처리할 status 반환)
             return {
                 "status": "NICKNAME_REQUIRED",
@@ -72,9 +131,11 @@ async def kakao_callback(code: str):
         # [기존 유저] 닉네임이 이미 있다면 바로 토큰 발급
         nickname = user_data[0].get("nickname")
         if not nickname: # 가입은 했으나 닉네임이 없는 경우 처리
-            return HTMLResponse(content = )
+            print(f"[카카오 로그인] 닉네임 없는 유저: {user_email}")
+            return {"status": "NICKNAME_REQUIRED", "social_id": social_id, "email": user_email}
             
         token = create_jwt_token(user_email, social_id)
+        print(f"[카카오 로그인] 기존 유저 로그인 성공: {nickname}")
         return {
             "status": "success",
             "token": token,
@@ -94,8 +155,6 @@ async def set_nickname(request: Request, data: UserData):
     email = request.state.user_email 
     new_nickname = data.nickname
 
-    conn = get_db()
-    cur = conn.cursor()
     try:
         # 1. 닉네임 중복 체크 (다른 사람이 이미 쓰고 있는지)
         check_res = supabase.table("users").select("email").eq("nickname", new_nickname).execute()
