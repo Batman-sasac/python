@@ -47,8 +47,7 @@ async def kakao_callback(code: str):
     social_id = str(user_info_res.get("id"))
     user_email = user_info_res.get("kakao_account", {}).get("email", "")
 
-    conn = get_db()
-    cur = conn.cursor()
+    
 
     try:
         # 3. 기존 유저 확인
@@ -73,7 +72,7 @@ async def kakao_callback(code: str):
         # [기존 유저] 닉네임이 이미 있다면 바로 토큰 발급
         nickname = user_data[0].get("nickname")
         if not nickname: # 가입은 했으나 닉네임이 없는 경우 처리
-            return {"status": "NICKNAME_REQUIRED", "social_id": social_id, "email": user_email}
+            return HTMLResponse(content = )
             
         token = create_jwt_token(user_email, social_id)
         return {
