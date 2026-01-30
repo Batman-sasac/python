@@ -5,13 +5,16 @@
 
 ---
 
-Category,Tech
-Language,Python 3.14+
-Framework,FastAPI
-AI/ML,"Naver Clova OCR, OpenAI GPT API"
-Database,"PostgreSQL, SQLAlchemy"
-Auth,Kakao OAuth 2.0
-Testing,Pytest
+### 🛠 기술 스택 (Technical Specifications)
+
+| Category | Tech Stack | Details |
+| :--- | :--- | :--- |
+| **Language** | **Python 3.14+** | 최신 문법 및 고성능 비동기 처리 활용 |
+| **Framework** | **FastAPI** | 비동기 기반의 빠르고 현대적인 API 프레임워크 |
+| **AI/ML** | **Naver Clova OCR, OpenAI GPT API** | 문서 텍스트 추출 및 지능형 단어 선별/문제 생성 |
+| **Database** | **PostgreSQL, SQLAlchemy** | 강력한 관계형 DB 및 효율적인 ORM 관리 |
+| **Auth** | **Kakao OAuth 2.0** | 카카오 소셜 로그인을 통한 간편한 인증 체계 |
+| **Testing** | **Pytest** | 견고한 로직 검증을 위한 자동화 테스트 프레임워크 |
 
 ---
 
