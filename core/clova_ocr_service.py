@@ -21,12 +21,14 @@ class CLOVAOCRService:
         self.clova_secret = os.getenv("CLOVA_OCR_SECRET")
 
     
-    def get_estimation_message(self, files_data):
+    def get_estimation_message(self, files_data, secret_key):
         """
         [Service]
         - 입력: [{'filename': '...', 'bytes': b'...'}, ...]
         - 로직: PDF(40초/장), 이미지(30초/장) 합산
         """
+
+        print(f"사용 중인 키: {self.clova_secret}")
         total_seconds = 0
 
         for file in files_data:
@@ -55,15 +57,29 @@ class CLOVAOCRService:
     
     
     
-    def extract_text_with_clova(files_data):
+    def extract_text_with_clova(self, file_bytes, filename):
         """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출"""
 
         pages_text = []
         
         try:
             # 파일 확장자 확인
-            file_ext = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
+            raw_ext = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
             
+
+                # 2. 클로바가 선호하는 포맷으로 매핑 (jpeg -> jpg)
+            if raw_ext in ['jpg', 'jpeg', 'jpe']:
+                file_ext = 'jpg'
+            elif raw_ext == 'png':
+                file_ext = 'png'
+            elif raw_ext == 'pdf':
+                file_ext = 'pdf'
+            elif raw_ext in ['tiff', 'tif']:
+                file_ext = 'tiff'
+            else:
+                file_ext = 'jpg'  # 알 수 없는 경우 기본값 jpg
+
+
             # 클로바 OCR 요청 데이터 구성
             request_json = {
                 'images': [{'format': file_ext, 'name': 'ocr_request'}],
@@ -74,6 +90,7 @@ class CLOVAOCRService:
 
             headers = {'X-OCR-SECRET': self.clova_secret}
             payload = {'message': json.dumps(request_json)}
+            
             files = [('file', (filename, file_bytes, 'application/octet-stream'))]
 
             # 클로바 API 호출
@@ -82,7 +99,7 @@ class CLOVAOCRService:
                 headers=headers, 
                 data=payload, 
                 files=files,
-                timeout=120
+                timeout=180
             )
             
             if response.status_code == 200:

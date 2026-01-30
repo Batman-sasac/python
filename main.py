@@ -37,57 +37,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    exclude_paths = [
-        "/", "/auth/login", "/auth/kakao/callback", "auto/kakao/mobile", 
-        "/auth/nickName", "/auth/set-nickname", "/static", "/auth/set-nickName"
-    ]
-    
-    path = request.url.path
 
-    # 1. 예외 경로라면 바로 다음 단계로 진행
-    if path in exclude_paths or any(path.startswith(p) for p in exclude_paths):
-        return await call_next(request)
-
-    # 2. 헤더에서 토큰 추출
-    auth_header = request.headers.get('Authorization') 
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return JSONResponse(
-            status_code=401, 
-            content={"code": "LOGIN_REQUIRED", "detail": "로그인이 필요합니다."}
-        )
-
-    token = auth_header.split(" ")[1]
-
-    try:
-        # 3. 토큰 검증
-        secret_key = os.getenv("JWT_SECRET_KET", "your-secret-key")
-        payload = jwt.decode(token, secret_key, algorithms=["HS256"])
-        # 추출한 이메일을 request.state에 저장 (이후 API에서 사용)
-        request.state.user_email = payload.get("email")
-
-        # 4. DB 확인
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT nickName FROM users WHERE email = %s", (user_email,))
-        user_row = cur.fetchone()
-
-        # 닉네임이 없거나 결과가 없는 경우
-        if not user_row or not user_row[0]: # user_row[0]이 nickName
-            return JSONResponse(status_code=403, content={"code": "NICKNAME_REQUIRED"})
-
-    except jwt.PyJWTError:
-        # 토큰 유효하지 않거나 만료된 경우
-        return JSONResponse(status_code=401, content={"code": "INVALID_TOKEN"})
-    except Exception as e:
-        # 기타 DB 에러 등
-        return JSONResponse(status_code=500, content={"detail": str(e)})
-    finally:
-        # 사용한 커서나 연결이 있다면 여기서 닫아주는 것이 좋습니다.
-        cur.close()
-
-    return await call_next(request)
 
 
 

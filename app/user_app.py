@@ -1,7 +1,8 @@
 import os
+from dotenv import load_dotenv
 import requests
 import psycopg2
-from fastapi import APIRouter, Response, Request, Header, Form
+from fastapi import APIRouter, Response, Request, Header, Form, Depends
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
@@ -11,10 +12,17 @@ from app.security_app import create_jwt_token
 import jwt
 from datetime import datetime, timedelta
 from fastapi.responses import JSONResponse
+from fastapi import Form
+
+from app.security.security_app import get_current_user
+
 
 
 load_dotenv()
 app = APIRouter(prefix="/auth", tags=["Auth"])
+
+class KakaoLoginRequest(BaseModel):
+    code: str
 
 class UserData(BaseModel):
     nickname: str # 소문자 nickname으로 통일
@@ -74,28 +82,38 @@ async def kakao_callback_redirect(code: str):
 # --- [1-2. 카카오 로그인 처리 - POST로 실제 로그인] ---
 @app.post("/kakao/mobile")
 async def kakao_callback(code: str = Form(...)):
-    from fastapi import Form
     
     # FormData로 code 받기
     if not code:
         return JSONResponse(status_code=400, content={"error": "code가 필요합니다"})
     
     print(f"[카카오 로그인] code 수신: {code[:20]}...")
+
+    client_id = "5202f1b3b542b79fdf499d766362bef6"
+    redirect_uri = "http://127.0.0.1:8000/auth/kakao/mobile"
     
     # 1. 카카오 Access Token 발급
     token_url = "https://kauth.kakao.com/oauth/token"
     token_data = {
         "grant_type": "authorization_code",
-        "client_id": os.getenv("KAKAO_REST_API_KEY"),
+        "client_id": client_id,
         "client_secret": os.getenv("KAKAO_CLIENT_SECRET"),
-        "redirect_uri": "http://127.0.0.1:8000/auth/kakao/mobile",
+        "redirect_uri": redirect_uri,
         "code": code,
     }
+
+    print(f"[STEP 2] 카카오 토큰 요청 데이터 확인:")
+    print(f" - URL: {token_url}")
+    print(f" - Client ID: {client_id}")
+    print(f" - Redirect URI: {redirect_uri}")
+    print(f"{'='*30}")
     
     token_res = requests.post(token_url, data=token_data).json()
     access_token = token_res.get("access_token")
 
     if not access_token:
+    # 이 부분을 추가해서 카카오가 보내는 진짜 에러 메시지를 확인하세요!
+        print(f"❌ 카카오 토큰 발급 실패 상세 로그: {token_res}") 
         return JSONResponse(status_code=400, content={"error": "카카오 토큰 발급 실패", "details": token_res})
 
     # 2. 카카오 사용자 정보 가져오기
@@ -149,33 +167,25 @@ async def kakao_callback(code: str = Form(...)):
 
 
 # --- [2. 닉네임 설정 API] ---
-@app.post("/set-nickname")
-async def set_nickname(request: Request, data: UserData):
-    # 미들웨어에서 검증된 이메일 사용
-    email = request.state.user_email 
-    new_nickname = data.nickname
-
+@app.post("/set-nickname") 
+async def set_nickname_mobile(
+    email: str = Depends(get_current_user),
+    nickname: str = Form(...)
+):
     try:
-        # 1. 닉네임 중복 체크 (다른 사람이 이미 쓰고 있는지)
-        check_res = supabase.table("users").select("email").eq("nickname", new_nickname).execute()
-        
-        if check_res.data:
-            return JSONResponse(
-                status_code=400, 
-                content={"status": "duplicated", "message": "이미 사용 중인 닉네임입니다."}
-            )
 
-        # 2. 닉네임 업데이트 (RLS가 걸려있다면 본인 확인 절차가 DB에서 한 번 더 수행됨)
-        supabase.table("users").update({"nickname": new_nickname}).eq("email", email).execute()
+        logger.info(f"디코딩된 이메일: {user_email}")
 
-        return {
-            "status": "success",
-            "nickname": new_nickname,
-            "email": email
-        }
+        response = supabase.table("users") \
+            .update({"nickname": nickname}) \
+            .eq("email", user_email) \
+            .execute()
+
+        logger.info(f"Supabase 응답 결과: {response}")
+
+        return {"status": "success", "nickname": nickname, "email": user_email}
     except Exception as e:
-        print(f"❌ 닉네임 저장 에러: {e}")
-        return JSONResponse(status_code=500, content={"detail": "서버 오류"})
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 

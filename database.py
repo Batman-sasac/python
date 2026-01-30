@@ -16,9 +16,7 @@ try:
     # 'ocr_data'라는 이름의 테이블이 실제로 있는지 확인하세요!
     # 만약 테이블 이름이 다르다면 그 이름으로 바꿔주어야 합니다.
     response = supabase.table("users").select("*").limit(1).execute()
-    
-    print("✅ 연결 성공! Supabase에서 데이터를 가져왔습니다.")
-    print(f"조회 결과: {response.data}")
+
 
     if response.data:
         print(f"성공! 데이터: {response.data}")

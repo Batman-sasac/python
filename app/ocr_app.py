@@ -1,12 +1,14 @@
 # ocr 및 빈칸/원본 저장
 
 import json
-from fastapi import APIRouter, UploadFile, File, Form, Body, Request
+from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import os
 from database import supabase 
+
 from core.clova_ocr_service import CLOVAOCRService
+from app.security.security_app import get_current_user
 
 app = APIRouter(tags=["OCR"])
 
@@ -41,8 +43,10 @@ async def get_estimate(file: UploadFile = File(...)):
 
 # 1. OCR 텍스트 추출 엔드포인트 수정
 @app.post("/ocr")
-async def run_ocr_endpoint(file: UploadFile = File(...)):
+async def run_ocr_endpoint(file: UploadFile = File(...),
+):
     try:
+
         file_bytes = await file.read()
 
         # 1. 네이버 OCR로 텍스트 추출
@@ -65,15 +69,15 @@ async def run_ocr_endpoint(file: UploadFile = File(...)):
 # 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식) 
 @app.post("/ocr/save-test")
 async def save_test(data: QuizSaveRequest,
-request: Request):
+token: str = Form(...),
+email: str = Depends(get_current_user)):
 
-    user_email = request.state.user_email
-    print(f"user_email:{user_email}")
+    print(f"저장 요청 유저: {email}")
 
    
     try:
         insert_data = {
-            "user_email": user_email,
+            "user_email": email,
             "subject_name": data.subject_name,
             "study_name": data.study_name,
             "ocr_text": data.original_text,   # 리스트 그대로 저장
@@ -85,7 +89,7 @@ request: Request):
 
         print("\n" + "✅"*10 + " OCR 데이터 저장 성공 " + "✅"*10)
         print(f"ID      : {new_id}")
-        print(f"사용자  : {user_email}")
+        print(f"사용자  : {email}")
         print(f"과목명  : {data.subject_name}")
         print(f"키워드수: {len(answers_json)}개")
         print(f"🔹 원본 내용 미리보기: {ocr_text_json}")
@@ -101,11 +105,13 @@ request: Request):
 
 # 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
 @app.delete("/ocr/ocr-data/delete/{quiz_id}")
-async def delete_ocr_data(request: Request,
-quiz_id: int):
+async def delete_ocr_data(
+quiz_id: int,
+token: str = Form(...),
+email: str = Depends(get_current_user)):
 
-    user_email = request.state.user_email
-    print(f"user_email:{user_email}")
+
+    print(f"삭제 요청 유저: {email}")
 
     try:
         # 1. 이미지 경로 확인
@@ -136,28 +142,23 @@ quiz_id: int):
 
 
 # 학습 목록 /ocr/list
-from fastapi import Query, Cookie
-
-# 학습 목록 /ocr/list
 @app.get("/ocr/list")
 async def get_ocr_list(
-    request: Request,
     page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1)
+    size: int = Query(10, ge=1),
+    token: str = Form(...),
+    email: str = Depends(get_current_user)
 ):
-    user_email = request.state.user_email
+    print(f"학습 목록 요청 유저:{email}")
 
     start = (page - 1) * size
-
-    conn = get_db()
-    cur = conn.cursor()
 
     try:
         # PostgreSQL의 복잡한 CASE 문은 RPC(함수)를 쓰거나 
         # 원본 데이터를 가져온 뒤 파이썬에서 가공하는 것이 SDK에서 더 깔끔합니다.
         response = supabase.table("ocr_data") \
             .select("id, study_name, subject_name, ocr_text, created_at") \
-            .eq("user_email", user_email) \
+            .eq("user_email", email) \
             .order("created_at", desc=True) \
             .range(start, end) \
             .execute()
