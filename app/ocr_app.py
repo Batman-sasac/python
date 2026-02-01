@@ -51,6 +51,8 @@ async def run_ocr_endpoint(file: UploadFile = File(...),
 
         # 1. 네이버 OCR로 텍스트 추출
         result = clova_service.process_file(file_bytes, file.filename)
+
+        print(f"ocr 결과:{result}")
         
         if result["status"] == "error":
             return result

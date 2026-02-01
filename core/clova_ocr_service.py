@@ -109,44 +109,55 @@ class CLOVAOCRService:
                 for image in result.get('images', []):
                     fields = image.get('fields', [])
                     if not fields:
-                        pages_text.append("") # 텍스트 없는 페이지 처리
+                        pages_text.append("")
                         continue
 
-                    # 한 페이지 내의 단어들을 줄바꿈을 살려 합치기
-                    full_text = ""
-                    # 첫 번째 필드의 y좌표를 기준으로 첫 줄 시작
+                    # --- [정렬 로직 시작] ---
+                    # 1. 모든 필드를 Y좌표 기준으로 먼저 정렬 (위 -> 아래)
+                    fields.sort(key=lambda x: x['boundingPoly']['vertices'][0]['y'])
+
+                    lines = []
+                    current_line = []
+                    # 첫 줄의 기준 Y좌표 설정
                     last_y = fields[0]['boundingPoly']['vertices'][0]['y']
-                    line_text = []
 
                     for field in fields:
                         current_y = field['boundingPoly']['vertices'][0]['y']
-                        text = field.get('inferText', '')
                         
-                        # y좌표 차이가 15보다 크면 줄바꿈(엔터) 처리
+                        # Y좌표 차이가 15보다 크면 새로운 줄로 간주
                         if abs(current_y - last_y) > 15:
-                            full_text += " ".join(line_text) + "\n"
-                            line_text = [text]
+                            # 이전 줄이 완성되었으므로 X좌표로 정렬 (왼쪽 -> 오른쪽)
+                            current_line.sort(key=lambda x: x['boundingPoly']['vertices'][0]['x'])
+                            lines.append(current_line)
+                            
+                            current_line = [field]
                             last_y = current_y
                         else:
-                            # 같은 줄이면 공백으로 연결
-                            line_text.append(text)
+                            current_line.append(field)
                     
-                    # 마지막 줄까지 합쳐서 텍스트 완성
-                    full_text += " ".join(line_text)
-                    
-                    # 완성된 한 페이지의 텍스트를 리스트에 담기
-                    pages_text.append(full_text)
-                    print(f"✅ {len(pages_text)}페이지 추출 완료")
+                    # 마지막 줄 처리
+                    current_line.sort(key=lambda x: x['boundingPoly']['vertices'][0]['x'])
+                    lines.append(current_line)
 
-                # 모든 페이지가 담긴 리스트 반환: ["1쪽 내용", "2쪽 내용", ...]
+                    # 2. 정렬된 줄들을 하나의 텍스트로 합치기
+                    full_page_text = ""
+                    for line in lines:
+                        line_text = " ".join([f.get('inferText', '') for f in line])
+                        full_page_text += line_text + "\n"
+
+                    pages_text.append(full_page_text.strip())
+                    print(f"✅ {len(pages_text)}페이지 추출 및 정렬 완료")
+                    # --- [정렬 로직 끝] ---
+
                 return pages_text
             else:
                 print(f"❌ Clova API 에러: {response.status_code}, {response.text}")
                 return None
-
         except Exception as e:
             print(f"❌ OCR 처리 중 예외 발생: {e}")
             return None
+
+
     
     def process_file(self, file_bytes, filename):
         """텍스트 추출 및 페이지별 GPT 키워드 추출 실행"""
@@ -162,7 +173,7 @@ class CLOVAOCRService:
         if not all_pages_text:
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
 
-        pages_keywords = []
+        all_keywords = []
 
         # 2. 각 페이지별로 루프를 돌며 키워드 추출
         for i, page_text in enumerate(all_pages_text):
@@ -176,7 +187,8 @@ class CLOVAOCRService:
                                 "제공된 텍스트에서 학습에 필요한 핵심 명사만 추출하세요.\n"
                                 "1. '명사'만 추출하세요.\n"
                                 "2. 숫자나 중요한 고유명사도 포함하세요.\n"
-                                "3. 반드시 ['단어1', '단어2'] 형태의 JSON 배열로만 답변하세요."
+                                "3. 반드시 ['단어1', '단어2'] 형태의 JSON 배열로만 답변하세요.\n"
+                                "4. 조사, 형용사도 제외하고 명사만 포함하세요."
                             )
                         },
                         {
@@ -196,11 +208,11 @@ class CLOVAOCRService:
                 else:
                     keywords = []
 
-                pages_keywords.append(keywords)
+                all_keywords.append(keywords)
 
             except Exception as e:
                 print(f"페이지 {i+1} GPT 에러: {e}")
-                pages_keywords.append([]) 
+                all_keywords.append([]) 
 
         gpt_duration = time.time() - gpt_start
         print(f"⏱️ [GPT 키워드 추출 소요 시간]: {gpt_duration:.2f}초")
@@ -210,9 +222,10 @@ class CLOVAOCRService:
         # 3. 최종 결과 반환
         return {
             "status": "success",
-            "pages": all_pages_text,
-            "pages_keywords": pages_keywords,
-            "original_text": all_pages_text[0] if all_pages_text else "",
-            "keywords": pages_keywords[0] if pages_keywords else [],
+            "original_text": all_pages_text, # 전체 원본 텍스트
+            # "keywords": all_keywords, # 전체 키워드 / 프론트랑 이름 맞춤
+            # "original_text": all_pages_text[0] if all_pages_text else "",
+            # # 프론트에서 페이지 [] 리스트로만 받는 로직이랑 일단 이렇게 수정 프론트 수정 후 다시 위 ketwords 사용
+             "keywords": all_keywords[0] if all_keywords else [],  
             "total_duration": total_duration,
         }

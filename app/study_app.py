@@ -1,6 +1,6 @@
 # 재첨 후 정답 저장 
 
-from fastapi import APIRouter, HTTPException, Body, Request
+from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
 from typing import List, Optional
 from database import supabase
@@ -10,6 +10,8 @@ import psycopg2.extras
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+
+from app.security.security_app import get_current_user
 
 app = APIRouter(prefix="/study", tags=["study"])
 
@@ -22,17 +24,18 @@ class QuizSubmitRequest(BaseModel):
 # 채점 로직
 @app.post("/grade")
 async def grade_quiz(
-    request : Request,
+    token: str = Form(...),
+    email: str = Depends(get_current_user),
     payload: dict = Body(...)
 ):
-    user_email = request.state.user_email
+    print(f"채점할 유저:{email}")
     
     # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
     correct_ans = payload.get('answer', [])
     user_ans = payload.get('user_answers', [])
     quiz_id = payload.get('quiz_id')
 
-    if not correct_ans or not user_email:
+    if not correct_ans or not email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
 
     # 채점 로직
@@ -54,26 +57,26 @@ async def grade_quiz(
         supabase.table("ocr_data") \
             .update({"user_answers": user_ans}) \
             .eq("id", quiz_id) \
-            .eq("user_email", user_email).execute()
+            .eq("user_email", email).execute()
 
         # [2] 학습 로그 기록
         supabase.table("study_logs").insert({
             "quiz_id": quiz_id, 
-            "user_email": user_email
+            "user_email": email
         }).execute()
 
         # [3] 리워드 지급 (있을 때만)
         if reward > 0:
             supabase.table("reward_history").insert({
-                "user_email": user_email,
+                "user_email": email,
                 "reward_amount": reward,
                 "reason": f"퀴즈 정답: {correct_count}/{total_questions}"
             }).execute()
 
             # 포인트 합산 (현재 포인트 조회 후 업데이트)
-            user_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+            user_res = supabase.table("users").select("points").eq("email", email).single().execute()
             new_points = (user_res.data.get("points") or 0) + reward
-            supabase.table("users").update({"points": new_points}).eq("email", user_email).execute()
+            supabase.table("users").update({"points": new_points}).eq("email", email).execute()
 
         return {
             "status": "success",
@@ -93,16 +96,23 @@ templates = Jinja2Templates(directory="templates")
 
 # 복습화면
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
-async def review_page(request: Request, quiz_id: int):
+async def review_page(
+    quiz_id: int,
+    token: str = Form(...),
+    email: str = Depends(get_current_user)
+    ):
+
+
     
-    user_email = request.state.user_email
+    print(f"복습화면:{email}")
+    print(f"복습 번호:{quiz_id}")
 
     try:
   # .single()을 사용하여 딕셔너리로 바로 가져옴
         res = supabase.table("ocr_data") \
             .select("id, subject_name, study_name, ocr_text, answers, quiz_html") \
             .eq("id", quiz_id) \
-            .eq("user_email", user_email) \
+            .eq("user_email", email) \
             .single().execute()
         
         quiz_data = res.data
@@ -118,8 +128,11 @@ async def review_page(request: Request, quiz_id: int):
 
 # 복습 완료 시 리워드 제공 & 사용자 답변 저장 
 @app.post("/review-study")
-async def review_study_reward(request : Request):
-    user_email = request.state.user_email
+async def review_study_reward(token: str = Form(...),
+    email: str = Depends(get_current_user)
+    ):
+    print(f"복습 완료 시 리워드 제공 유저:{email}")
+    
     data = await request.json()
     quiz_id = data.get("quiz_id")
     all_user_answers = data.get("user_answers")
@@ -136,7 +149,7 @@ async def review_study_reward(request : Request):
 
         # 리워드 이력 추가
         supabase.table("reward_history").insert({
-            "user_email": user_email,
+            "user_email": email,
             "reward_amount": total_reward,
             "reason": "복습학습을 통한 정답 리워드"
         }).execute()
@@ -147,9 +160,9 @@ async def review_study_reward(request : Request):
             .eq("id", quiz_id).execute()
 
         # 유저 포인트 합산 업데이트
-        user_res = supabase.table("users").select("points").eq("email", user_email).single().execute()
+        user_res = supabase.table("users").select("points").eq("email", email).single().execute()
         new_total_points = (user_res.data.get("points") or 0) + total_reward
-        supabase.table("users").update({"points": new_total_points}).eq("email", user_email).execute()
+        supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
 
         return {"status": "success", "new_points": new_total_points}
     except Exception as e:

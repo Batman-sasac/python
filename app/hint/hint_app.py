@@ -1,29 +1,18 @@
-from fastapi import APIRouter. Request, HTTPException
-from database import get_db
+from fastapi import APIRouter, HTTPException, Depends, Form
+from database import supabase
 import json
 
-@app.get("/study/hint/{quiz_id}")
-async def get_quiz_hint(request: Request, quiz_id:int):
-    user_email = request.state.user_email
-
-    마지막 힌트 제공 로직까지 Supabase SDK 버전으로 깔끔하게 변환해 드릴게요.
-
-이 코드의 핵심은 json.loads 과정이 생략된다는 점과, 결과가 없을 때 single()을 사용해 깔끔하게 예외 처리를 하는 것입니다. 또한 get_chosung 함수는 기존에 정의하신 것을 그대로 사용한다고 가정했습니다.
-
-🛠️ Supabase SDK 버전 hint.py
-Python
-
-import os
-from fastapi import APIRouter, Request, HTTPException
-from database import supabase  # database.py에서 설정한 클라이언트
-# get_chosung 함수는 기존 위치에서 임포트하거나 정의되어 있어야 합니다.
+from app.security.security_app import get_current_user
+    
 
 app = APIRouter(tags=["Study"])
 
 @app.get("/study/hint/{quiz_id}")
-async def get_quiz_hint(request: Request, quiz_id: int):
-    # 1. 미들웨어에서 추출한 유저 이메일
-    user_email = request.state.user_email
+async def get_quiz_hint( quiz_id: int,
+    token: str = Form(...),
+    email: str = Depends(get_current_user)
+    ):
+   
 
     try:
         # 2. DB에서 정답 리스트 가져오기 (SDK 버전)
@@ -31,7 +20,7 @@ async def get_quiz_hint(request: Request, quiz_id: int):
         res = supabase.table("ocr_data") \
             .select("answers") \
             .eq("id", quiz_id) \
-            .eq("user_email", user_email) \
+            .eq("user_email", email) \
             .single() \
             .execute()
 

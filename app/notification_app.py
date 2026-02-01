@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Body, Request
+from fastapi import APIRouter, Body, Depends, Form
 from pydantic import BaseModel
 from typing import Optional
 from database import supabase
 from core.notification_service import scheduler
 from datetime import datetime
+
+from app.security.security_app import get_current_user
 
 app = APIRouter()
 
@@ -60,26 +62,25 @@ def shutdown_event():
 # 복습 알림 설정 수정
 @app.post("/notification-push/update")
 async def update_notification(
-    request : Request,
+    token: str = Form(...),
+    email: str = Depends(get_current_user),
     payload: dict = Body(...)
 ):
 
-    user_email = request.state.user_email
     is_notify = payload.get("is_notify")
     remind_time = payload.get("remind_time") # "07:30" 형식
 
-    conn = get_db()
-    cur = conn.cursor()
+
     try:
         supabase.table("users") \
             .update({
                 "is_notify": is_notify, 
                 "remind_time": remind_time
             }) \
-            .eq("email", user_email) \
+            .eq("email", email) \
             .execute()
             
-        print(f"✅ 알림 설정 완료: {user_email} -> {remind_time}")
+        print(f"✅ 알림 설정 완료: {email} -> {remind_time}")
         return {"status": "success", "message": "알림 설정이 저장되었습니다."}
         
     except Exception as e:
