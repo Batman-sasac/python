@@ -9,7 +9,6 @@ app = APIRouter(tags=["Study"])
 
 @app.get("/study/hint/{quiz_id}")
 async def get_quiz_hint( quiz_id: int,
-    token: str = Form(...),
     email: str = Depends(get_current_user)
     ):
    

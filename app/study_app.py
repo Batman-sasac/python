@@ -98,7 +98,6 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
 async def review_page(
     quiz_id: int,
-    token: str = Form(...),
     email: str = Depends(get_current_user)
     ):
 

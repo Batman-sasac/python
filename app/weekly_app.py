@@ -47,7 +47,7 @@ payload: dict = Body(...)
 
 # 2. 주간 성장 그래프 데이터 (SELECT & 가공)
 @app.get("/stats/weekly-growth")
-async def get_weekly_growth(token: str = Form(...),
+async def get_weekly_growth(
 email: str = Depends(get_current_user)
 ):
 
@@ -111,7 +111,7 @@ email: str = Depends(get_current_user)
 
 # 3. 학습 통계 비교 (이번 달 vs 지난 달)
 @app.get("/learning-stats")
-async def get_learning_stats(token: str = Form(...),
+async def get_learning_stats(
 email: str = Depends(get_current_user)
 ):
     

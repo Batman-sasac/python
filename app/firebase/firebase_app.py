@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Body, Depends, Form
 from database import supabase
 
+from app.security.security_app import get_current_user
+
 app = APIRouter()
 
 #users DB fcm_token 저장

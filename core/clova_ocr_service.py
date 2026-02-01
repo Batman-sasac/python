@@ -222,9 +222,9 @@ class CLOVAOCRService:
         # 3. 최종 결과 반환
         return {
             "status": "success",
-            "original_text": all_pages_text, # 전체 원본 텍스트
+            # "original_text": all_pages_text, # 전체 원본 텍스트
             # "keywords": all_keywords, # 전체 키워드 / 프론트랑 이름 맞춤
-            # "original_text": all_pages_text[0] if all_pages_text else "",
+             "original_text": all_pages_text[0] if all_pages_text else "",
             # # 프론트에서 페이지 [] 리스트로만 받는 로직이랑 일단 이렇게 수정 프론트 수정 후 다시 위 ketwords 사용
              "keywords": all_keywords[0] if all_keywords else [],  
             "total_duration": total_duration,
