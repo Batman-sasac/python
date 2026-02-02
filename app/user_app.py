@@ -24,8 +24,10 @@ app = APIRouter(prefix="/auth", tags=["Auth"])
 class KakaoLoginRequest(BaseModel):
     code: str
 
-class UserData(BaseModel):
-    nickname: str # 소문자 nickname으로 통일
+class NicknameUpdate(BaseModel): # 프론트에 맞춰 Form이 아닌 data로
+    nickname: str
+    email: Optional[str] = None
+    social_id: Optional[str] = None
 
 # --- [1. 카카오 로그인 콜백 - GET으로 code 받고 HTML 반환] ---
 @app.get("/kakao/mobile")
@@ -111,6 +113,8 @@ async def kakao_callback(code: str = Form(...)):
     token_res = requests.post(token_url, data=token_data).json()
     access_token = token_res.get("access_token")
 
+    print(f"access_token: {access_token}" )
+
     if not access_token:
     # 이 부분을 추가해서 카카오가 보내는 진짜 에러 메시지를 확인하세요!
         print(f"❌ 카카오 토큰 발급 실패 상세 로그: {token_res}") 
@@ -124,6 +128,9 @@ async def kakao_callback(code: str = Form(...)):
 
     social_id = str(user_info_res.get("id"))
     user_email = user_info_res.get("kakao_account", {}).get("email", "")
+    token = create_jwt_token(user_email, social_id)
+
+    print(f"JWT token: {token}")
 
     try:
         # 3. 기존 유저 확인
@@ -143,6 +150,7 @@ async def kakao_callback(code: str = Form(...)):
             return {
                 "status": "NICKNAME_REQUIRED",
                 "social_id": social_id,
+                "token": token,
                 "email": user_email
             }
 
@@ -150,9 +158,13 @@ async def kakao_callback(code: str = Form(...)):
         nickname = user_data[0].get("nickname")
         if not nickname: # 가입은 했으나 닉네임이 없는 경우 처리
             print(f"[카카오 로그인] 닉네임 없는 유저: {user_email}")
-            return {"status": "NICKNAME_REQUIRED", "social_id": social_id, "email": user_email}
+            return {
+                "status": "NICKNAME_REQUIRED",
+                "social_id": social_id,
+                "email": user_email,
+                "token": token
+                }
             
-        token = create_jwt_token(user_email, social_id)
         print(f"[카카오 로그인] 기존 유저 로그인 성공: {nickname}")
         return {
             "status": "success",
@@ -169,21 +181,23 @@ async def kakao_callback(code: str = Form(...)):
 # --- [2. 닉네임 설정 API] ---
 @app.post("/set-nickname") 
 async def set_nickname_mobile(
-    email: str = Depends(get_current_user),
-    nickname: str = Form(...)
+    data: NicknameUpdate,
+    email: str = Depends(get_current_user)
 ):
     try:
 
-        logger.info(f"디코딩된 이메일: {user_email}")
+        nickname = data.nickname
+
+        print(f"토큰 주인 이메일: {email}, 설정하려는 닉네임: {nickname}")
 
         response = supabase.table("users") \
             .update({"nickname": nickname}) \
-            .eq("email", user_email) \
+            .eq("email", email) \
             .execute()
 
         logger.info(f"Supabase 응답 결과: {response}")
 
-        return {"status": "success", "nickname": nickname, "email": user_email}
+        return {"status": "success", "nickname": nickname, "email": email}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

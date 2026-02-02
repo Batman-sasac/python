@@ -1,47 +1,61 @@
-
 import jwt
 import os
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from fastapi import HTTPException, Form, Depends
+from fastapi import HTTPException, Depends, Header
+from typing import Optional
 
 load_dotenv()
 
-# .env 파일에 설정된 비밀키를 가져옵니다.
-SECRET_KEY = os.getenv("JWT_SECRET_KEY") or "your-very-secret-key"
+# ✅ 1. 설정값 통일 (변수명을 JWT_SECRET_KEY로 통일)
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "9f68341c81629a6be18d46f73a0b3fff564bf7bf244a4083e41a969d3c04f15d")
 ALGORITHM = "HS256"
 
-# 해독함수 정의
-def decode_jwt_token(token: str):
-    """
-    프론트엔드에서 보낸 토큰을 해독하여 사용자 정보를 반환합니다.
-    """
-    try:
-        # 1. 토큰의 서명을 확인하고 내용을 해독합니다.
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        
-        # 2. 토큰 안에 담긴 정보(주로 email이나 social_id)를 반환합니다.
-        return payload 
-        
-    except jwt.ExpiredSignatureError:
-        # 토큰 유효시간이 만료된 경우
-        raise HTTPException(status_code=401, detail="토큰이 만료되었습니다.")
-    except jwt.InvalidTokenError:
-        # 토큰 자체가 가짜이거나 손상된 경우
-        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다.")
-    except Exception as e:
-        # 기타 에러 처리
-        raise HTTPException(status_code=500, detail=f"토큰 해독 중 오류 발생: {str(e)}")
+# ✅ 2. 토큰 생성 함수 (기존 코드 유지 또는 참고)
+def create_jwt_token(email: str, social_id: str):
+    payload = {
+        "email": email,
+        "social_id": social_id,
+        "exp": datetime.utcnow() + timedelta(days=1)  # 1일 동안 유효
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=ALGORITHM)
 
-# 문지기 함수 
-async def get_current_user(token: str = Form(...)):
-    """
-    프론트에서 Form으로 보낸 token을 가로채서 검증합니다.
-    """
-    payload = decode_jwt_token(token)
-    email = payload.get("email")
+# ✅ 3. 핵심: 토큰 검증 및 사용자 추출 함수
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    print(f"--- [인증 프로세스 시작] ---")
     
-    if not email:
-        # 신분증이 가짜거나 만료되었으면 여기서 바로 입구컷!
-        raise HTTPException(status_code=401, detail="인증되지 않은 사용자입니다.")
+    # 1. 헤더 존재 여부 확인
+    if not authorization:
+        print("❌ 에러: Authorization 헤더가 아예 없습니다.")
+        raise HTTPException(status_code=401, detail="인증 헤더가 누락되었습니다.")
+
+    print(f"수신된 헤더: {authorization}...")
+
+    # 2. Bearer 형식 확인
+    if not authorization or not authorization.startswith("Bearer "):
+        print(f"❌ 형식 에러 발생 시점의 값: '{authorization}'") # 따옴표로 감싸서 공백 확인
+        raise HTTPException(status_code=401, detail="'Bearer ' 형식이 아닙니다.")
+    # 3. 토큰 추출 및 해독
+    try:
+        token = authorization.split(" ")[1]
+        # ✅ JWT_SECRET_KEY를 사용하여 해독 (이름 주의!)
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
         
-    return email # 검증된 이메일을 반환합니다.
+        email = payload.get("email")
+        if not email:
+            print("❌ 에러: 토큰 내부에 email 필드가 없습니다.")
+            raise HTTPException(status_code=401, detail="유효하지 않은 토큰 페이로드입니다.")
+
+        print(f"✅ 인증 성공! 사용자: {email}")
+        return email
+
+    except jwt.ExpiredSignatureError:
+        print("❌ 에러: 토큰 유효기간 만료")
+        raise HTTPException(status_code=401, detail="토큰이 만료되었습니다.")
+    except jwt.InvalidTokenError as e:
+        # ✅ 콘솔에 구체적인 이유 출력 (Signature verification failed 등)
+        print(f"❌ JWT 검증 실패 상세 원인: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"유효하지 않은 토큰입니다. 이유: {str(e)}")
+    except Exception as e:
+        print(f"❌ 알 수 없는 인증 에러: {str(e)}")
+        raise HTTPException(status_code=500, detail="서버 인증 처리 중 오류가 발생했습니다.")
