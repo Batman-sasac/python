@@ -18,6 +18,8 @@ app = APIRouter(prefix="/auth", tags=["Auth"])
 
 class UserData(BaseModel):
     nickname: str # 소문자 nickname으로 통일
+    email: Optional[str] = None
+    social_id: Optional[str] = None
 
 # --- [1. 카카오 로그인 콜백 - GET으로 code 받고 HTML 반환] ---
 @app.get("/kakao/mobile")
@@ -150,13 +152,23 @@ async def kakao_callback(code: str = Form(...)):
 
 # --- [2. 닉네임 설정 API] ---
 @app.post("/set-nickname")
-async def set_nickname(request: Request, data: UserData):
-    # 미들웨어에서 검증된 이메일 사용
-    email = request.state.user_email 
-    new_nickname = data.nickname
-
+async def set_nickname(data: UserData):
+    """
+    닉네임 설정 (미들웨어 인증 불필요)
+    body에서 nickname, email, social_id를 받음
+    """
     try:
-        # 1. 닉네임 중복 체크 (다른 사람이 이미 쓰고 있는지)
+        email = data.email
+        social_id = data.social_id
+        new_nickname = data.nickname
+
+        if not email or not social_id:
+            return JSONResponse(
+                status_code=400, 
+                content={"status": "error", "message": "email과 social_id가 필요합니다."}
+            )
+
+        # 1. 닉네임 중복 체크
         check_res = supabase.table("users").select("email").eq("nickname", new_nickname).execute()
         
         if check_res.data:
@@ -165,17 +177,23 @@ async def set_nickname(request: Request, data: UserData):
                 content={"status": "duplicated", "message": "이미 사용 중인 닉네임입니다."}
             )
 
-        # 2. 닉네임 업데이트 (RLS가 걸려있다면 본인 확인 절차가 DB에서 한 번 더 수행됨)
+        # 2. 닉네임 업데이트
         supabase.table("users").update({"nickname": new_nickname}).eq("email", email).execute()
+
+        # 3. JWT 토큰 생성 및 반환
+        token = create_jwt_token(email, social_id)
+
+        print(f"✅ 닉네임 설정 성공: {email} -> {new_nickname}")
 
         return {
             "status": "success",
+            "token": token,
             "nickname": new_nickname,
             "email": email
         }
     except Exception as e:
         print(f"❌ 닉네임 저장 에러: {e}")
-        return JSONResponse(status_code=500, content={"detail": "서버 오류"})
+        return JSONResponse(status_code=500, content={"detail": str(e)})
 
 
 

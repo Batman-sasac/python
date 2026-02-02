@@ -11,6 +11,10 @@ key: str = os.getenv("SUPABASE_ANON_KEY")
 
 supabase: Client = create_client(url, key)
 
+def get_db():
+    """Supabase를 통한 DB 연결 반환"""
+    return supabase
+
 print("--- DB 연결 테스트 시작 ---")
 try:
     # 'ocr_data'라는 이름의 테이블이 실제로 있는지 확인하세요!

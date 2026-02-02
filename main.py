@@ -9,8 +9,11 @@ from app import ocr_app, study_app, user_app, notification_app, reward_app, week
 from app.firebase import firebase_app
 from app.reward_app import check_attendance_and_reward
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import jwt
+from database import get_db
 
 
 from core.notification_service import send_fcm_notification
@@ -39,54 +42,75 @@ app.add_middleware(
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    import sys
+    
     exclude_paths = [
-        "/", "/auth/login", "/auth/kakao/callback", "auto/kakao/mobile", 
-        "/auth/nickName", "/auth/set-nickname", "/static", "/auth/set-nickName"
+        "/", "/auth/login", "/auth/kakao/callback", "/auth/kakao/mobile", 
+        "/auth/naver/callback", "/auth/naver/mobile",
+        "/auth/set-nickname",
+        "/static", 
     ]
     
     path = request.url.path
+    auth_header = request.headers.get('Authorization')
+    
+    print(f"🔍 요청: {request.method} {path}", flush=True)
+    print(f"   Authorization: {auth_header[:50] if auth_header else '없음'}...", flush=True)
 
     # 1. 예외 경로라면 바로 다음 단계로 진행
-    if path in exclude_paths or any(path.startswith(p) for p in exclude_paths):
+    # "/" 단독은 "/"만 매칭하고, 다른 경로는 prefix로 확인
+    is_excluded = (path == "/") or any(path.startswith(p) for p in exclude_paths if p != "/")
+    
+    if is_excluded:
+        print(f"   📌 예외 경로 통과", flush=True)
         return await call_next(request)
 
     # 2. 헤더에서 토큰 추출
-    auth_header = request.headers.get('Authorization') 
     if not auth_header or not auth_header.startswith("Bearer "):
+        print(f"❌ Authorization 헤더 없음 또는 잘못됨", flush=True)
         return JSONResponse(
             status_code=401, 
             content={"code": "LOGIN_REQUIRED", "detail": "로그인이 필요합니다."}
         )
 
     token = auth_header.split(" ")[1]
+    print(f"   📌 토큰 추출 완료", flush=True)
 
+    # 3. 토큰 검증
+    secret_key = os.getenv("JWT_SECRET_KEY", "your-secret-key")
+    print(f"   Secret Key: {'설정됨' if os.getenv('JWT_SECRET_KEY') else '기본값 사용'}", flush=True)
+    
     try:
-        # 3. 토큰 검증
-        secret_key = os.getenv("JWT_SECRET_KET", "your-secret-key")
         payload = jwt.decode(token, secret_key, algorithms=["HS256"])
-        # 추출한 이메일을 request.state에 저장 (이후 API에서 사용)
-        request.state.user_email = payload.get("email")
-
-        # 4. DB 확인
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT nickName FROM users WHERE email = %s", (user_email,))
-        user_row = cur.fetchone()
-
-        # 닉네임이 없거나 결과가 없는 경우
-        if not user_row or not user_row[0]: # user_row[0]이 nickName
-            return JSONResponse(status_code=403, content={"code": "NICKNAME_REQUIRED"})
-
-    except jwt.PyJWTError:
-        # 토큰 유효하지 않거나 만료된 경우
+        print(f"   ✅ 토큰 검증 성공: {payload}", flush=True)
+    except jwt.PyJWTError as e:
+        print(f"   ❌ 토큰 검증 실패: {e}", flush=True)
         return JSONResponse(status_code=401, content={"code": "INVALID_TOKEN"})
     except Exception as e:
-        # 기타 DB 에러 등
+        print(f"   ❌ 예상치 못한 에러: {e}", flush=True)
         return JSONResponse(status_code=500, content={"detail": str(e)})
-    finally:
-        # 사용한 커서나 연결이 있다면 여기서 닫아주는 것이 좋습니다.
-        cur.close()
 
+    # 4. 추출한 이메일을 request.state에 저장
+    user_email = payload.get("email")
+    print(f"   이메일: {user_email}", flush=True)
+    
+    if not user_email:
+        print(f"   ❌ 토큰에 이메일이 없음", flush=True)
+        return JSONResponse(status_code=401, content={"code": "INVALID_TOKEN"})
+    
+    request.state.user_email = user_email
+    print(f"   ✅ request.state.user_email 설정 완료: {user_email}", flush=True)
+
+    # 5. DB 확인은 선택사항으로 변경 (실패해도 진행)
+    try:
+        db = get_db()
+        response = db.table("users").select("nickName").eq("email", user_email).execute()
+        user_row = response.data
+        print(f"   DB 조회: {user_row}", flush=True)
+    except Exception as db_error:
+        print(f"   ⚠️ DB 조회 무시: {db_error}", flush=True)
+
+    print(f"   🎯 middleware 통과 - call_next 실행", flush=True)
     return await call_next(request)
 
 
