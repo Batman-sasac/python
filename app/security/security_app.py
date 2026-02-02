@@ -1,6 +1,6 @@
 import jwt
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from fastapi import HTTPException, Depends, Header
 from typing import Optional
@@ -16,7 +16,7 @@ def create_jwt_token(email: str, social_id: str):
     payload = {
         "email": email,
         "social_id": social_id,
-        "exp": datetime.utcnow() + timedelta(days=1)  # 1일 동안 유효
+        "exp": datetime.utcnow() + timedelta(days=30)  # 1일 동안 유효
     }
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=ALGORITHM)
 
