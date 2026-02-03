@@ -231,11 +231,11 @@ async def get_user_stats(email: str = Depends(get_current_user)):
             .select("id", count="exact") \
             .eq("user_email", email) \
             .execute()
-        total_learning_count_day = getattr(total_res, "count", None)
-        if total_learning_count_day is None and total_res.data is not None:
-            total_learning_count_day = len(total_res.data)
-        if total_learning_count_day is None:
-            total_learning_count_day = 0
+        total_learning_count = getattr(total_res, "count", None)
+        if total_learning_count is None and total_res.data is not None:
+            total_learning_count = len(total_res.data)
+        if total_learning_count is None:
+            total_learning_count = 0
 
         # 2. 총 학습일·연속 학습일: study_logs.completed_at 기준 distinct 날짜 계산
         logs_res = supabase.table("study_logs") \
@@ -271,7 +271,7 @@ async def get_user_stats(email: str = Depends(get_current_user)):
         return {
             "status": "success",
             "data": {
-                "total_learning_count_day": total_learning_count_day,
+                "total_learning_count": total_learning_count,
                 "consecutive_days": consecutive_days,
                 "monthly_goal": monthly_goal,
             }

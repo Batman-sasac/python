@@ -17,9 +17,9 @@ app = APIRouter(prefix="/study", tags=["study"])
 
 # 퀴즈 제출 모델
 class QuizSubmitRequest(BaseModel):
-    quiz_id: int
-    user_answers: List[str]
-    correct_answers: List[str]
+    quiz_id: int                # 퀴즈 번호 
+    user_answers: List[str]          # 유저 답변 리스트
+    correct_answers: List[str]      # 빈칸 답변 리스트
 
 # 채점 로직
 @app.post("/grade")
@@ -175,6 +175,7 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
             .eq("id", quiz_id) \
             .eq("user_email", email) \
             .execute()
+            
 
         # 유저 포인트 합산 업데이트
         user_res = supabase.table("users").select("points").eq("email", email).single().execute()

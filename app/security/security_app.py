@@ -40,7 +40,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         print("❌ 에러: Authorization 헤더가 아예 없습니다.")
         raise HTTPException(status_code=401, detail="인증 헤더가 누락되었습니다.")
 
-    print(f"수신된 헤더: {authorization}...")
+    print(f"수신된 헤더: {authorization[:15]}...")
 
     # 2. Bearer 형식 확인
     if not authorization or not authorization.startswith("Bearer "):

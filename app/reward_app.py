@@ -1,58 +1,83 @@
 from fastapi import APIRouter, Depends, Form
 from database import supabase
-from datetime import date
-from typing import Optional
+from datetime import date, datetime
+from typing import Tuple, Optional
 
 from app.security.security_app import get_current_user
 
 
 app = APIRouter(tags=["Reward"])
 
-# 출석체크 리워드 제공 로직
-async def check_attendance_and_reward(token: str = Form(...),
-email: str = Depends(get_current_user)):
+REASON_ATTENDANCE = "출석체크"
+REWARD_AMOUNT = 10
 
-    print(f"출석제크 리워드 유저:{email}")
-    
+
+def _auto_attendance_check(email: str) -> Tuple[bool, int]:
+    """
+    앱 실행 시 자동 출석체크: rewards DB에 당일 출석체크 row가 없으면 리워드 적립.
+    - 당일 row 있음 → (False, 현재 포인트)
+    - 당일 row 없음 → INSERT 후 users.points 갱신, (True, 갱신된 포인트)
+    """
     today = date.today()
-
     try:
-        # 1. 중복 확인
-        check_res = supabase.table("reward_history") \
+        # 1. 당일 출석체크 row 존재 여부 확인 (rewards 테이블)
+        check_res = supabase.table("rewards") \
             .select("id") \
             .eq("user_email", email) \
-            .eq("reason", "출석체크") \
+            .eq("reason", REASON_ATTENDANCE) \
             .gte("created_at", f"{today}T00:00:00") \
             .lt("created_at", f"{today}T23:59:59") \
             .execute()
-        
-        # 이미 데이터가 존재한다면 현재 포인트만 조회해서 반환
-        if check_res.data:
+
+        if check_res.data and len(check_res.data) > 0:
             user_res = supabase.table("users").select("points").eq("email", email).single().execute()
-            current_pt = user_res.data.get("points", 0)
+            current_pt = user_res.data.get("points", 0) if user_res.data else 0
             return False, current_pt
 
-        # 2. 리워드 이력 추가 (INSERT)
-        supabase.table("reward_history").insert({
+        # 2. 당일 row 없음 → rewards 테이블에 INSERT (리워드 적립)
+        supabase.table("rewards").insert({
             "user_email": email,
-            "reward_amount": 10,
-            "reason": "출석체크"
+            "reward_amount": REWARD_AMOUNT,
+            "reason": REASON_ATTENDANCE,
+            "created_at": datetime.utcnow().isoformat(),
         }).execute()
 
-        # 3. 유저 포인트 업데이트 (UPDATE)
-        # 먼저 현재 포인트를 가져와서 +10 (기존 코드에서는 +1이었으나 맥락상 10P 지급으로 수정)
-        user_data_res = supabase.table("users").select("points").eq("email", email).single().execute()
-        current_points = user_data_res.data.get("points", 0)
-        new_total_points = current_points + 10
+        # 3. users.points 업데이트
+        user_res = supabase.table("users").select("points").eq("email", email).single().execute()
+        current_points = user_res.data.get("points", 0) if user_res.data else 0
+        new_total = current_points + REWARD_AMOUNT
+        supabase.table("users").update({"points": new_total}).eq("email", email).execute()
 
-        update_res = supabase.table("users") \
-            .update({"points": new_total_points}) \
-            .eq("email", email) \
-            .execute()
-
-        print(f"🎊 [리워드 지급] {email}: 10P 완료 (총: {new_total_points}P)")
-        return True, new_total_points
+        print(f"🎊 [자동 출석체크] {email}: rewards 적립 완료 ({REWARD_AMOUNT}P, 총: {new_total}P)")
+        return True, new_total
 
     except Exception as e:
-        print(f"❌ 리워드 지급 중 오류 발생: {e}")
+        print(f"❌ 출석체크 리워드 처리 오류: {e}")
         return False, 0
+
+
+# main.py /index 등에서 호출 시 사용 (Form + Depends)
+async def check_attendance_and_reward(
+    token: str = Form(...),
+    email: str = Depends(get_current_user),
+) -> Tuple[bool, int]:
+    """출석체크 리워드 (기존 호환용). _auto_attendance_check 위임."""
+    return _auto_attendance_check(email)
+
+
+# --- 앱 실행 시 자동 출석체크 API: 당일 row 없으면 rewards 적립 ---
+@app.post("/reward/attendance")
+async def auto_attendance_check(email: str = Depends(get_current_user)):
+    """
+    앱 실행 시 호출. 자동 출석체크 후 당일 출석체크 row가 없으면 rewards DB에 적립.
+    - GET/POST 모두 지원 (앱 로드 시 GET으로 호출 가능)
+    """
+    is_new, points = _auto_attendance_check(email)
+    return {
+        "status": "success",
+        "is_new_reward": is_new,
+        "baseXP": REWARD_AMOUNT if is_new else 0,
+        "bonusXP": 0,
+        "total_points": points,
+        "message": "출석 보상이 지급되었습니다." if is_new else "오늘 이미 출석 보상을 받았습니다.",
+    }
