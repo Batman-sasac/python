@@ -14,8 +14,7 @@ async def get_quiz_hint( quiz_id: int,
    
 
     try:
-        # 2. DB에서 정답 리스트 가져오기 (SDK 버전)
-        # .single()을 쓰면 결과가 없을 때 자동으로 에러를 감지하기 쉬워집니다.
+        # DB: answers (jsonb) 컬럼에 정답 배열 저장됨
         res = supabase.table("ocr_data") \
             .select("answers") \
             .eq("id", quiz_id) \
@@ -23,7 +22,7 @@ async def get_quiz_hint( quiz_id: int,
             .single() \
             .execute()
 
-        correct_answers = res.data.get("answers", [])
+        correct_answers = res.data.get("answers") or []
 
         if not correct_answers:
             return {"status": "success", "quiz_id": quiz_id, "data": []}
@@ -52,4 +51,4 @@ async def get_quiz_hint( quiz_id: int,
     except Exception as e:
         print(f"❌ 힌트 생성 중 에러: {e}")
         # 데이터가 없는 경우 single()에서 에러가 발생할 수 있으므로 404 처리
-        raise HTTPException(status_code=404, detail="데이터를 찾을 수 없거나 접근 권한이 없습
+        raise HTTPException(status_code=404, detail="데이터를 찾을 수 없거나 접근 권한이 없습니다.")

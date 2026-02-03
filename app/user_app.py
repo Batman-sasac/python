@@ -194,7 +194,7 @@ async def set_nickname_mobile(
         if not social_id and data.social_id:
             social_id = data.social_id
 
-        # 2. 닉네임 업데이트
+        # 2. 닉네임 업데이트 (서버 DB에 저장)
         update_res = supabase.table("users") \
             .update({"nickname": nickname}) \
             .eq("email", email) \

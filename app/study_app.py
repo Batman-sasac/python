@@ -107,15 +107,33 @@ async def review_page(
     print(f"복습 번호:{quiz_id}")
 
     try:
-  # .single()을 사용하여 딕셔너리로 바로 가져옴
+        # DB: ocr_text (jsonb) = { pages, blanks, quiz }, answers (jsonb) = 정답 배열
         res = supabase.table("ocr_data") \
-            .select("id, subject_name, study_name, ocr_text, answers, quiz_html") \
+            .select("id, subject_name, study_name, ocr_text") \
             .eq("id", quiz_id) \
             .eq("user_email", email) \
             .single().execute()
-        
-        quiz_data = res.data
-        
+
+        row = res.data
+        ocr_val = row.get("ocr_text") or {}
+        pages = ocr_val.get("pages", [])
+        blanks = ocr_val.get("blanks", [])
+        # blanks 없으면 pages[].keywords를 순서대로 사용 (저장 형식 호환)
+        if blanks:
+            answers_list = [b.get("word", "") for b in blanks]
+        else:
+            answers_list = []
+            for p in pages:
+                answers_list.extend(p.get("keywords") or [])
+        quiz_data = {
+            "id": row.get("id"),
+            "subject_name": row.get("subject_name"),
+            "study_name": row.get("study_name"),
+            "ocr_text": [p.get("original_text", "") for p in pages],
+            "answers": answers_list,
+            "quiz_html": ocr_val.get("quiz", {}),
+        }
+
         return templates.TemplateResponse("review_study.html", {
             "request": request,
             "quiz": quiz_data,
@@ -125,21 +143,19 @@ async def review_page(
         return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
 
 
-# 복습 완료 시 리워드 제공 & 사용자 답변 저장 
+# 복습 완료 시 리워드 제공 & 사용자 답변 저장
 @app.post("/review-study")
-async def review_study_reward(token: str = Form(...),
-    email: str = Depends(get_current_user)
-    ):
+async def review_study_reward(request: Request, email: str = Depends(get_current_user)):
     print(f"복습 완료 시 리워드 제공 유저:{email}")
-    
+
     data = await request.json()
     quiz_id = data.get("quiz_id")
     all_user_answers = data.get("user_answers")
 
     try:
-        # DB에서 정답 가져오기
+        # DB: answers (jsonb) 컬럼에 정답 배열 저장됨
         res = supabase.table("ocr_data").select("answers").eq("id", quiz_id).single().execute()
-        correct_answers = res.data.get("answers", [])
+        correct_answers = res.data.get("answers") or []
 
         # 채점
         score = sum(1 for u, c in zip(all_user_answers, correct_answers) 
@@ -153,10 +169,12 @@ async def review_study_reward(token: str = Form(...),
             "reason": "복습학습을 통한 정답 리워드"
         }).execute()
 
-        # 답변 업데이트
+        # 답변 업데이트 (user_answers JSON 컬럼)
         supabase.table("ocr_data") \
             .update({"user_answers": all_user_answers}) \
-            .eq("id", quiz_id).execute()
+            .eq("id", quiz_id) \
+            .eq("user_email", email) \
+            .execute()
 
         # 유저 포인트 합산 업데이트
         user_res = supabase.table("users").select("points").eq("email", email).single().execute()

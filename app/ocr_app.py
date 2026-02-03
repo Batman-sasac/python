@@ -1,11 +1,17 @@
 # ocr 및 빈칸/원본 저장
+#
+# DB(ocr_data) 실제 컬럼: ocr_text, answers, user_answers, quiz_html (모두 jsonb)
+# - ocr_text (jsonb): { "pages": [...], "blanks": [...], "quiz": {} }
+# - answers (jsonb): 정답 배열 [ "단어1", "단어2", ... ]
+# - user_answers (jsonb): 사용자 작성 답변 [ "답1", "답2", ... ]
+# - quiz_html (jsonb): 퀴즈 메타 { "raw": "..." }
 
 import json
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from pydantic import BaseModel
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, Union
 import os
-from database import supabase 
+from database import supabase
 
 from core.clova_ocr_service import CLOVAOCRService
 from app.security.security_app import get_current_user
@@ -17,13 +23,30 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 clova_service = CLOVAOCRService(API_KEY)
 
 
-# JSON 요청을 위한 모델
+class PageItem(BaseModel):
+    original_text: str
+    keywords: List[str] = []
+
+
+class BlankItem(BaseModel):
+    blank_index: int
+    word: str
+    page_index: int = 0
+
+
+# JSON 요청 모델: 페이지·빈칸·사용자 답변 모두 JSON으로
 class QuizSaveRequest(BaseModel):
     subject_name: str
-    study_name: str
-    original_text: List[str]
-    quiz: Optional[Dict[str, str]] = None
-    answers: Optional[List[str]] = []
+    study_name: Optional[str] = None
+    # 페이지별 데이터 (필수 시 pages, 단일 페이지 시 original+answers 호환)
+    pages: Optional[List[PageItem]] = None
+    original: Optional[str] = None
+    answers: Optional[List[str]] = None
+    # 빈칸 정의 (blank_index 순서 = user_answers 인덱스)
+    blanks: Optional[List[BlankItem]] = None
+    # 사용자 작성 답변 (빈칸 순서대로)
+    user_answers: Optional[List[str]] = None
+    quiz: Optional[Union[Dict[str, str], str]] = None
 
 
 # 예상 소요 시간 반환
@@ -68,36 +91,70 @@ async def run_ocr_endpoint(file: UploadFile = File(...),
         return {"status": "error", "message": str(e)}
 
 
-# 2. OCR 결과 및 퀴즈 데이터 DB 저장 (JSON 방식) 
+# 2. OCR 결과 및 퀴즈 데이터 DB 저장 (페이지·빈칸·답변 모두 JSON)
 @app.post("/ocr/save-test")
-async def save_test(data: QuizSaveRequest,
-token: str = Form(...),
-email: str = Depends(get_current_user)):
-
+async def save_test(data: QuizSaveRequest, email: str = Depends(get_current_user)):
     print(f"저장 요청 유저: {email}")
 
-   
     try:
+        # 페이지별 원문·키워드 (pages 있으면 사용, 없으면 original+answers로 1페이지)
+        if data.pages and len(data.pages) > 0:
+            pages_data = [{"original_text": p.original_text, "keywords": p.keywords or []} for p in data.pages]
+        else:
+            orig = data.original or ""
+            kw = data.answers or []
+            pages_data = [{"original_text": orig, "keywords": kw}]
+
+        # 빈칸 정의 (blanks 있으면 사용, 없으면 keywords 순서로 생성)
+        if data.blanks and len(data.blanks) > 0:
+            blanks_data = [
+                {"blank_index": b.blank_index, "word": b.word, "page_index": b.page_index}
+                for b in data.blanks
+            ]
+        else:
+            blanks_data = []
+            for pi, page in enumerate(pages_data):
+                for ki, w in enumerate(page["keywords"]):
+                    blanks_data.append({"blank_index": len(blanks_data), "word": w, "page_index": pi})
+
+        quiz_val = data.quiz if isinstance(data.quiz, dict) else ({"raw": data.quiz} if data.quiz else {})
+
+        # DB 실제 컬럼명: ocr_text, answers, user_answers, quiz_html (jsonb)
+        ocr_text_json: Dict[str, Any] = {
+            "pages": pages_data,
+            "blanks": blanks_data,
+            "quiz": quiz_val,
+        }
+        answers_json: List[str] = [b["word"] for b in blanks_data]
+        user_answers_list: List[str] = list(data.user_answers) if data.user_answers else []
+
         insert_data = {
             "user_email": email,
             "subject_name": data.subject_name,
-            "study_name": data.study_name,
-            "ocr_text": data.original_text,   # 리스트 그대로 저장
-            "answers": data.answers or [],     # 리스트 그대로 저장
-            "quiz_html": data.quiz or {}      # 딕셔너리 그대로 저장
+            "study_name": data.study_name or data.subject_name or "",
+            "ocr_text": ocr_text_json,
+            "answers": answers_json,
+            "user_answers": user_answers_list,
+            "quiz_html": quiz_val,
         }
 
-        response = supabase.table("ocr_data").insert(insert_data).execute()
+        response = (
+            supabase.table("ocr_data")
+            .insert(insert_data)
+            .execute()
+        )
 
-        print("\n" + "✅"*10 + " OCR 데이터 저장 성공 " + "✅"*10)
-        print(f"ID      : {new_id}")
-        print(f"사용자  : {email}")
-        print(f"과목명  : {data.subject_name}")
-        print(f"키워드수: {len(answers_json)}개")
-        print(f"🔹 원본 내용 미리보기: {ocr_text_json}")
-        print("="*45 + "\n")
-        
-        new_id = response.data[0]['id']
+        if not response.data:
+            return {"status": "error", "message": "저장 후 ID를 받지 못했습니다."}
+
+        new_id = response.data[0]["id"]
+        print("\n" + "✅" * 10 + " OCR 데이터 저장 성공 " + "✅" * 10)
+        print(f"ID        : {new_id}")
+        print(f"사용자    : {email}")
+        print(f"과목명    : {data.subject_name}")
+        print(f"페이지 수 : {len(pages_data)}")
+        print(f"빈칸 수   : {len(blanks_data)}")
+        print("=" * 45 + "\n")
 
         return {"status": "success", "quiz_id": new_id}
     except Exception as e:
@@ -105,23 +162,71 @@ email: str = Depends(get_current_user)):
         return {"status": "error", "message": str(e)}
 
 
+# 복습 시 퀴즈 데이터 JSON으로 가져오기 (앱에서 ScaffoldingPayload 형태로 사용)
+@app.get("/ocr/quiz/{quiz_id}")
+async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_user)):
+    try:
+        res = (
+            supabase.table("ocr_data")
+            .select("id, subject_name, study_name, ocr_text, user_answers")
+            .eq("id", quiz_id)
+            .eq("user_email", email)
+            .single()
+            .execute()
+        )
+        if not res.data:
+            return {"status": "error", "message": "데이터를 찾을 수 없습니다."}
+
+        row = res.data
+        ocr_val = row.get("ocr_text") or {}
+        pages = ocr_val.get("pages", [])
+        blanks = ocr_val.get("blanks", [])
+        quiz_val = ocr_val.get("quiz") or {}
+        raw_text = quiz_val.get("raw", "") if isinstance(quiz_val, dict) else str(quiz_val)
+
+        # 원문: pages[0].original_text 또는 quiz.raw, 여러 페이지면 \n\n으로 이어붙임
+        if pages:
+            extracted_text = "\n\n".join(p.get("original_text", "") for p in pages)
+        else:
+            extracted_text = raw_text
+
+        # 빈칸 목록: blanks 있으면 사용, 없으면 pages[].keywords로 생성
+        if blanks:
+            blanks_list = [{"id": b.get("blank_index", i), "word": b.get("word", ""), "meaningLong": ""} for i, b in enumerate(blanks)]
+        else:
+            kw_list = []
+            for p in pages:
+                kw_list.extend(p.get("keywords") or [])
+            blanks_list = [{"id": i, "word": w, "meaningLong": ""} for i, w in enumerate(kw_list)]
+
+        user_answers = row.get("user_answers") or []
+
+        return {
+            "status": "success",
+            "data": {
+                "quiz_id": row.get("id"),
+                "title": row.get("study_name") or row.get("subject_name") or "학습 자료",
+                "extractedText": extracted_text,
+                "blanks": blanks_list,
+                "user_answers": user_answers,
+            },
+        }
+    except Exception as e:
+        print(f"퀴즈 조회 에러: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # 해당 학습 삭제 로직 /ocr/ocr-data/delete/{학습파일 번호}
 @app.delete("/ocr/ocr-data/delete/{quiz_id}")
-async def delete_ocr_data(
-quiz_id: int,
-token: str = Form(...),
-email: str = Depends(get_current_user)):
-
-
+async def delete_ocr_data(quiz_id: int, email: str = Depends(get_current_user)):
     print(f"삭제 요청 유저: {email}")
 
     try:
-        # 1. 이미지 경로 확인
-        res = ( 
+        res = (
             supabase.table("ocr_data")
-            .select("image_url") 
+            .select("image_url")
             .eq("id", quiz_id)
-            .eq("user_email", user_email) 
+            .eq("user_email", email)
             .execute()
         )
 
@@ -133,7 +238,13 @@ email: str = Depends(get_current_user)):
             os.remove(file_path)
 
         # 2. 데이터 삭제
-        supabase.table("ocr_data").delete().eq("id", quiz_id).eq("user_email", user_email).execute()
+        (
+            supabase.table("ocr_data")
+            .delete()
+            .eq("id", quiz_id)
+            .eq("user_email", email)
+            .execute()
+        )
         
         return {"status": "success", "message": "삭제 성공했습니다."}
 
@@ -148,33 +259,35 @@ email: str = Depends(get_current_user)):
 async def get_ocr_list(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1),
-    token: str = Form(...),
-    email: str = Depends(get_current_user)
+    email: str = Depends(get_current_user),
 ):
-    print(f"학습 목록 요청 유저:{email}")
+    print(f"학습 목록 요청 유저: {email}")
 
     start = (page - 1) * size
+    end = start + size - 1
 
     try:
-        # PostgreSQL의 복잡한 CASE 문은 RPC(함수)를 쓰거나 
-        # 원본 데이터를 가져온 뒤 파이썬에서 가공하는 것이 SDK에서 더 깔끔합니다.
-        response = supabase.table("ocr_data") \
-            .select("id, study_name, subject_name, ocr_text, created_at") \
-            .eq("user_email", email) \
-            .order("created_at", desc=True) \
-            .range(start, end) \
+        response = (
+            supabase.table("ocr_data")
+            .select("id, study_name, subject_name, ocr_text, created_at")
+            .eq("user_email", email)
+            .order("created_at", desc=True)
+            .range(start, end)
             .execute()
+        )
 
-        # 데이터 가공 (미리보기 및 날짜 표시)
         formatted_data = []
         for item in response.data:
-            ocr_str = str(item['ocr_text'])
+            ocr_val = item.get("ocr_text") or {}
+            pages = ocr_val.get("pages", [])
+            first_text = pages[0].get("original_text", "") if pages else ""
+            ocr_str = (first_text[:50] + "...") if len(first_text) > 50 else first_text
             formatted_data.append({
-                "id": item['id'],
-                "study_name": item['study_name'],
-                "subject_name": item['subject_name'],
-                "ocr_preview": (ocr_str[:50] + "...") if len(ocr_str) > 50 else ocr_str,
-                "created_at": item['created_at'] # 날짜 포맷팅은 필요시 파이썬에서 추가
+                "id": item["id"],
+                "study_name": item.get("study_name", ""),
+                "subject_name": item.get("subject_name", ""),
+                "ocr_preview": ocr_str,
+                "created_at": item.get("created_at"),
             })
 
         return {
