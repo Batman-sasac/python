@@ -82,7 +82,7 @@ class CLOVAOCRService:
 
             # 클로바 OCR 요청 데이터 구성
             request_json = {
-                'images': [{'format': file_ext, 'name': 'ocr_request'}],
+                'images': [{'format': file_ext, 'name': 'ocr_request', 'lang': 'enko'}],
                 'requestId': str(uuid.uuid4()),
                 'version': 'V2',
                 'timestamp': int(round(time.time() * 1000))

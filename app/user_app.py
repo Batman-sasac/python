@@ -10,7 +10,7 @@ from database import supabase
 from pydantic import BaseModel
 from app.security.security_app import create_jwt_token, get_current_user
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from fastapi.responses import JSONResponse
 from fastapi import Form
 
@@ -219,6 +219,66 @@ async def set_nickname_mobile(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# --- [3. 사용자 학습 통계 (총 학습 횟수, 연속 학습일, 한달 목표)] ---
+@app.get("/user/stats")
+async def get_user_stats(email: str = Depends(get_current_user)):
+    """총 학습 횟수, 총 학습일, 연속 학습일, 한달 목표 반환 (study_logs.completed_at 기준)"""
+    try:
+        today = date.today()
+
+        # 1. 총 학습 횟수: study_logs 전체 건수
+        total_res = supabase.table("study_logs") \
+            .select("id", count="exact") \
+            .eq("user_email", email) \
+            .execute()
+        total_learning_count_day = getattr(total_res, "count", None)
+        if total_learning_count_day is None and total_res.data is not None:
+            total_learning_count_day = len(total_res.data)
+        if total_learning_count_day is None:
+            total_learning_count_day = 0
+
+        # 2. 총 학습일·연속 학습일: study_logs.completed_at 기준 distinct 날짜 계산
+        logs_res = supabase.table("study_logs") \
+            .select("completed_at") \
+            .eq("user_email", email) \
+            .execute()
+        study_dates = set()
+        for row in (logs_res.data or []):
+            completed = row.get("completed_at")
+            if completed:
+                if isinstance(completed, str):
+                    study_dates.add(completed[:10])  # YYYY-MM-DD
+                else:
+                    study_dates.add(str(completed)[:10])
+        consecutive_days = 0  # 연속 학습일: 오늘부터 역순으로 연속된 일수
+        check = today
+        check_str = check.isoformat()
+        while check_str in study_dates:
+            consecutive_days += 1
+            check -= timedelta(days=1)
+            check_str = check.isoformat()
+
+        # 3. 한달 목표: users.target_count
+        user_res = supabase.table("users") \
+            .select("monthly_goal") \
+            .eq("email", email) \
+            .single() \
+            .execute()
+        monthly_goal = 0
+        if user_res.data and user_res.data.get("monthly_goal") is not None:
+            monthly_goal = int(user_res.data["monthly_goal"])
+
+        return {
+            "status": "success",
+            "data": {
+                "total_learning_count_day": total_learning_count_day,
+                "consecutive_days": consecutive_days,
+                "monthly_goal": monthly_goal,
+            }
+        }
+    except Exception as e:
+        print(f"사용자 통계 조회 오류: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
     
