@@ -8,13 +8,11 @@ from typing import Optional
 from dotenv import load_dotenv
 from database import supabase
 from pydantic import BaseModel
-from app.security_app import create_jwt_token
+from app.security.security_app import create_jwt_token, get_current_user
 import jwt
 from datetime import datetime, timedelta
 from fastapi.responses import JSONResponse
 from fastapi import Form
-
-from app.security.security_app import get_current_user
 
 
 
@@ -185,20 +183,39 @@ async def set_nickname_mobile(
     email: str = Depends(get_current_user)
 ):
     try:
-
         nickname = data.nickname
-
         print(f"토큰 주인 이메일: {email}, 설정하려는 닉네임: {nickname}")
 
-        response = supabase.table("users") \
+        # 1. social_id 조회 (토큰 생성용)
+        user_res = supabase.table("users").select("social_id").eq("email", email).execute()
+        social_id = None
+        if user_res.data and len(user_res.data) > 0:
+            social_id = user_res.data[0].get("social_id") or data.social_id
+        if not social_id and data.social_id:
+            social_id = data.social_id
+
+        # 2. 닉네임 업데이트
+        update_res = supabase.table("users") \
             .update({"nickname": nickname}) \
             .eq("email", email) \
             .execute()
 
-        logger.info(f"Supabase 응답 결과: {response}")
+        if not update_res.data:
+            return JSONResponse(status_code=404, content={"error": "사용자를 찾을 수 없습니다."})
 
-        return {"status": "success", "nickname": nickname, "email": email}
+        # 3. 새 JWT 발급 (프론트엔드가 저장할 수 있도록)
+        social_id_str = str(social_id) if social_id else (data.social_id or "unknown")
+        token = create_jwt_token(email, social_id_str)
+
+        return {
+            "status": "success",
+            "token": token,
+            "nickname": nickname,
+            "email": email,
+            "message": "닉네임이 설정되었습니다."
+        }
     except Exception as e:
+        print(f"닉네임 설정 오류: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 

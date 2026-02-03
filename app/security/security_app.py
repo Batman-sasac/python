@@ -5,11 +5,19 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, Depends, Header
 from typing import Optional
 
-load_dotenv()
+# .env는 프로젝트 루트(bat_python) 기준으로 로드
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 
 # ✅ 1. 설정값 통일 (변수명을 JWT_SECRET_KEY로 통일)
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "9f68341c81629a6be18d46f73a0b3fff564bf7bf244a4083e41a969d3c04f15d")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not JWT_SECRET_KEY or not JWT_SECRET_KEY.strip():
+    raise RuntimeError(
+        "JWT_SECRET_KEY가 .env에 설정되지 않았습니다. "
+        "bat_python/.env 파일에 JWT_SECRET_KEY=... 를 추가하세요."
+    )
 ALGORITHM = "HS256"
+
+print(f"현재 사용중인 키: {JWT_SECRET_KEY[:5]}...")
 
 # ✅ 2. 토큰 생성 함수 (기존 코드 유지 또는 참고)
 def create_jwt_token(email: str, social_id: str):
@@ -18,11 +26,14 @@ def create_jwt_token(email: str, social_id: str):
         "social_id": social_id,
         "exp": datetime.utcnow() + timedelta(days=30)  # 1일 동안 유효
     }
+    print(f"DEBUG: 현재 발행용 SECRET_KEY(앞5자리): {JWT_SECRET_KEY[:5]}")
     return jwt.encode(payload, JWT_SECRET_KEY, algorithm=ALGORITHM)
 
 # ✅ 3. 핵심: 토큰 검증 및 사용자 추출 함수
 async def get_current_user(authorization: Optional[str] = Header(None)):
-    print(f"--- [인증 프로세스 시작] ---")
+    print(f"--- [인증 프로세스 시작] ---")# ✅ 검증 로직 안에 추가
+    print(f"DEBUG: 현재 검증용 SECRET_KEY(앞5자리): {JWT_SECRET_KEY[:5]}")
+
     
     # 1. 헤더 존재 여부 확인
     if not authorization:
@@ -37,7 +48,8 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         raise HTTPException(status_code=401, detail="'Bearer ' 형식이 아닙니다.")
     # 3. 토큰 추출 및 해독
     try:
-        token = authorization.split(" ")[1]
+        # token = authorization.split(" ")[1]
+        token = authorization.split(" ")[1].strip().replace('"', '').replace("'", "")
         # ✅ JWT_SECRET_KEY를 사용하여 해독 (이름 주의!)
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
         
