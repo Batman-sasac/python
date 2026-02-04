@@ -257,14 +257,10 @@ async def delete_ocr_data(quiz_id: int, email: str = Depends(get_current_user)):
 # 학습 목록 /ocr/list
 @app.get("/ocr/list")
 async def get_ocr_list(
-    page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1),
     email: str = Depends(get_current_user),
 ):
     print(f"학습 목록 요청 유저: {email}")
 
-    start = (page - 1) * size
-    end = start + size - 1
 
     try:
         response = (
@@ -272,7 +268,6 @@ async def get_ocr_list(
             .select("id, study_name, subject_name, ocr_text, created_at")
             .eq("user_email", email)
             .order("created_at", desc=True)
-            .range(start, end)
             .execute()
         )
 
@@ -291,8 +286,6 @@ async def get_ocr_list(
             })
 
         return {
-            "page": page,
-            "size": size,
             "data": formatted_data
         }
     except Exception as e:

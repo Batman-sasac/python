@@ -81,3 +81,26 @@ async def auto_attendance_check(email: str = Depends(get_current_user)):
         "total_points": points,
         "message": "출석 보상이 지급되었습니다." if is_new else "오늘 이미 출석 보상을 받았습니다.",
     }
+
+
+# --- 총 리워드 상위 5명 조회 API ---
+@app.get("/reward/leaderboard")
+async def get_reward_leaderboard():
+    """
+    users DB에서 총 리워드(points)가 높은 순 상위 5명을 반환.
+    반환: [{ total_reward, nickname }, ...]
+    """
+    try:
+        res = supabase.table("users") \
+            .select("points, nickname") \
+            .order("points", desc=True) \
+            .limit(5) \
+            .execute()
+        items = [
+            {"total_reward": row.get("points", 0), "nickname": row.get("nickname") or ""}
+            for row in (res.data or [])
+        ]
+        return {"status": "success", "leaderboard": items}
+    except Exception as e:
+        print(f"❌ 리더보드 조회 오류: {e}")
+        return {"status": "error", "leaderboard": [], "message": str(e)}
