@@ -14,6 +14,17 @@ import os
 from database import supabase
 
 from core.clova_ocr_service import CLOVAOCRService
+
+
+from core.ocr_usage_service import (
+    OCR_PAGE_LIMIT,
+    estimate_page_count,
+    get_user_ocr_usage,
+    add_ocr_usage,
+    check_can_use,
+)
+
+
 from app.security.security_app import get_current_user
 
 app = APIRouter(tags=["OCR"])
@@ -49,6 +60,32 @@ class QuizSaveRequest(BaseModel):
     quiz: Optional[Union[Dict[str, str], str]] = None
 
 
+# OCR 사용량 조회 API (50회 도달 시 한도 메시지 반환)
+@app.get("/ocr/usage")
+async def get_ocr_usage(email: str = Depends(get_current_user)):
+    """
+    회원의 OCR 사용량 조회.
+    pages_used >= 50 이면 "이용가능한 무료 횟수를 다 사용하셨습니다" 반환.
+    """
+    used = get_user_ocr_usage(email)
+    remaining = max(0, OCR_PAGE_LIMIT - used)
+
+    if used >= OCR_PAGE_LIMIT:
+        return {
+            "status": "limit_reached",
+            "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
+            "pages_used": used,
+            "pages_limit": OCR_PAGE_LIMIT,
+            "remaining": 0,
+        }
+    return {
+        "status": "ok",
+        "pages_used": used,
+        "pages_limit": OCR_PAGE_LIMIT,
+        "remaining": remaining,
+    }
+
+
 # 예상 소요 시간 반환
 @app.post("/ocr/estimate")
 async def get_estimate(file: UploadFile = File(...)):
@@ -64,28 +101,39 @@ async def get_estimate(file: UploadFile = File(...)):
     
     return {"estimated_time": result_msg}
 
-# 1. OCR 텍스트 추출 엔드포인트 수정
+# 1. OCR 텍스트 추출 엔드포인트
 @app.post("/ocr")
-async def run_ocr_endpoint(file: UploadFile = File(...),
+async def run_ocr_endpoint(
+    file: UploadFile = File(...),
+    email: str = Depends(get_current_user),
 ):
     try:
-
         file_bytes = await file.read()
 
-        # 1. 네이버 OCR로 텍스트 추출
-        result = clova_service.process_file(file_bytes, file.filename)
+        # 사용량 한도 체크 (OCR 호출 전)
+        estimated = estimate_page_count(file_bytes, file.filename or "")
+        can_use, used = check_can_use(email, estimated)
+        if not can_use:
+            return {
+                "status": "limit_reached",
+                "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
+                "pages_used": used,
+                "pages_limit": OCR_PAGE_LIMIT,
+            }
 
+        # 네이버 OCR로 텍스트 추출
+        result = clova_service.process_file(file_bytes, file.filename)
         print(f"ocr 결과:{result}")
-        
+
         if result["status"] == "error":
             return result
 
-        # 2. 프론트엔드 JS가 data.keywords를 사용하므로 키 이름을 일치시켜 반환
-        return {
-        "status": "success",
-        "data": result
-    }
-    
+        # 사용량 DB 저장
+        page_count = result.get("page_count", 1)
+        add_ocr_usage(email, page_count)
+
+        return {"status": "success", "data": result}
+
     except Exception as e:
         print(f"서버 내부 에러: {e}")
         return {"status": "error", "message": str(e)}

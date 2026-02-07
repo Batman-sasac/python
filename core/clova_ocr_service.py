@@ -218,7 +218,8 @@ class CLOVAOCRService:
         print(f"⏱️ [GPT 키워드 추출 소요 시간]: {gpt_duration:.2f}초")
         
         total_duration = time.time() - total_start
-        print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초")
+        page_count = len(all_pages_text)
+        print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초, 페이지 수: {page_count}")
         # 3. 최종 결과 반환
         return {
             "status": "success",
@@ -226,6 +227,7 @@ class CLOVAOCRService:
             # "keywords": all_keywords, # 전체 키워드 / 프론트랑 이름 맞춤
              "original_text": all_pages_text[0] if all_pages_text else "",
             # # 프론트에서 페이지 [] 리스트로만 받는 로직이랑 일단 이렇게 수정 프론트 수정 후 다시 위 ketwords 사용
-             "keywords": all_keywords[0] if all_keywords else [],  
+             "keywords": all_keywords[0] if all_keywords else [],
+            "page_count": page_count,
             "total_duration": total_duration,
         }

@@ -13,6 +13,8 @@ python-dotenv
 pdf2image
 pillow
 
+pypdf
+
 # AWS RDS(PostgreSQL) 연결
 psycopg2-binary
 # 네이버 클로바 API 호출
@@ -34,3 +36,8 @@ supabase
 # pydantic
 # supabase
 # uvicorn
+
+psycopg2
+
+# 테스트
+pytest
