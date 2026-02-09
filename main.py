@@ -5,9 +5,10 @@ from typing import Optional
 import uvicorn
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
+from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app, reports_app
 from app.firebase import firebase_app
 from app.reward_app import check_attendance_and_reward
+
 import os
 
 import jwt
@@ -28,6 +29,7 @@ app.include_router(notification_app.app)
 app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
 app.include_router(firebase_app.app)
+app.include_router(reports_app.app)
 
 # 앱과 통신 허용 (CORS)
 app.add_middleware(
