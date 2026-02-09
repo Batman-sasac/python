@@ -80,12 +80,13 @@ class CLOVAOCRService:
                 file_ext = 'jpg'  # 알 수 없는 경우 기본값 jpg
 
 
-            # 클로바 OCR 요청 데이터 구성
+            # 클로바 OCR 요청 데이터 구성 (lang은 message 최상위, 공식값: ko/ja/zh-TW)
             request_json = {
-                'images': [{'format': file_ext, 'name': 'ocr_request', 'lang': 'enko'}],
-                'requestId': str(uuid.uuid4()),
                 'version': 'V2',
-                'timestamp': int(round(time.time() * 1000))
+                'requestId': str(uuid.uuid4()),
+                'timestamp': int(round(time.time() * 1000)),
+                'lang': 'ko',
+                'images': [{'format': file_ext, 'name': 'ocr_request'}]
             }
 
             headers = {'X-OCR-SECRET': self.clova_secret}

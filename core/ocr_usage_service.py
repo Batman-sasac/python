@@ -4,6 +4,8 @@ import io
 from typing import Tuple
 from database import supabase
 from pypdf import PdfReader
+from app.security.security_app import get_current_user
+
 
 # 회원당 Clova OCR 페이지 사용 한도
 OCR_PAGE_LIMIT = 50
@@ -25,30 +27,24 @@ def get_user_ocr_usage(email: str) -> int:
     """회원의 현재 OCR 페이지 사용량 반환"""
     try:
         res = (
-            supabase.table("ocr_usage")
-            .select("pages_used")
-            .eq("user_email", email)
+            supabase.table("users")
+            .select("ocrpages_used")
+            .eq("email", email)
             .single()
             .execute()
         )
-        return int(res.data["pages_used"]) if res.data else 0
+
+        print(f"✅ocrpages_used: {res.data}")
+        return int(res.data["ocrpages_used"]) if res.data else 0
     except Exception:
         return 0
 
 
 def add_ocr_usage(email: str, page_count: int) -> None:
-    """회원의 OCR 사용량에 페이지 수 추가 (upsert)"""
+    """회원의 OCR 사용량에 페이지 수 추가 (기존 유저 UPDATE만, social_id NOT NULL 제약 회피)"""
     current = get_user_ocr_usage(email)
     new_total = current + page_count
-    try:
-        supabase.table("ocr_usage").upsert(
-            {"user_email": email, "pages_used": new_total, "updated_at": "now()"},
-            on_conflict="user_email",
-        ).execute()
-    except Exception:
-        supabase.table("ocr_usage").insert(
-            {"user_email": email, "pages_used": new_total}
-        ).execute()
+    supabase.table("users").update({"ocrpages_used": new_total}).eq("email", email).execute()
 
 
 def check_can_use(email: str, estimated_pages: int = 1) -> Tuple[bool, int]:

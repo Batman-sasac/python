@@ -41,3 +41,5 @@ psycopg2
 
 # 테스트
 pytest
+
+psycopg2-binary
