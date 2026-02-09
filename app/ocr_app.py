@@ -74,9 +74,9 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
         return {
             "status": "limit_reached",
             "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
-            "pages_used": used,
+            "pages_used": used, # 사용량
             "pages_limit": OCR_PAGE_LIMIT,
-            "remaining": 0,
+            "remaining": 0, # 남은 횟수
         }
     print(f"✅ OCR 사용량 조회: {used}")
     return {
