@@ -1,45 +1,40 @@
-# 웹 서버 (FastAPI)
+# 웹 서버
 fastapi
 uvicorn
-# 파일 업로드(OCR용) 처리
 python-multipart
+
+# JWT 인증 (security_app, user_app, main 등)
+PyJWT
+
+# 템플릿 (study_app - Jinja2Templates)
+jinja2
+
+# CORS / Flask (weekly_app에서 Flask import)
+flask
 flask-cors
 
-# AI 및 클라우드 서비스
+# AI 및 클라우드
 openai
 python-dotenv
-
-# PDF 및 데이터 처리
-pdf2image
-pillow
-
-pypdf
-
-# AWS RDS(PostgreSQL) 연결
-psycopg2-binary
-# 네이버 클로바 API 호출
 requests
 
-#firebase
-firebase-admin
+# PDF 및 이미지
+pdf2image
+pillow
+pypdf
 
-apscheduler
-
-# npm install -g firebase-tools
-
+# DB
+psycopg2-binary
 supabase
 
-# pip install supabase
-# pip install postgrest==0.10.6
+# Firebase
+firebase-admin
 
-# fastapi
-# pydantic
-# supabase
-# uvicorn
+# 스케줄러 (알림 등)
+apscheduler
 
-psycopg2
+# GCS (utils/file_handler.py)
+google-cloud-storage
 
 # 테스트
 pytest
-
-psycopg2-binary

@@ -5,7 +5,8 @@ from typing import Optional
 import uvicorn
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
+from fastapi.staticfiles import StaticFiles
+from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app, naver_login_app, kakao_login_app
 from app.firebase import firebase_app
 from app.reward_app import check_attendance_and_reward
 
@@ -25,6 +26,8 @@ if os.path.exists("static"):
 
 app = FastAPI()
 app.include_router(user_app.app)
+app.include_router(naver_login_app.app)
+app.include_router(kakao_login_app.app)
 app.include_router(ocr_app.app)
 app.include_router(study_app.app)
 app.include_router(notification_app.app)
