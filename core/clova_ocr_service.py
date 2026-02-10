@@ -222,13 +222,20 @@ class CLOVAOCRService:
         page_count = len(all_pages_text)
         print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초, 페이지 수: {page_count}")
         # 3. 최종 결과 반환
+        # 프론트(`front/src/api/ocr.ts`)는 다음 우선순위로 데이터를 사용:
+        # 1) inner.pages가 배열이면 각 페이지의 original_text/keywords를 합쳐 사용
+        # 2) 그렇지 않으면 original_text, keywords 단일 필드를 사용 (하위 호환)
+        #
+        # 여기서는 멀티 페이지를 정식 지원하기 위해 pages 배열을 내려준다.
         return {
             "status": "success",
-            # "original_text": all_pages_text, # 전체 원본 텍스트
-            # "keywords": all_keywords, # 전체 키워드 / 프론트랑 이름 맞춤
-             "original_text": all_pages_text[0] if all_pages_text else "",
-            # # 프론트에서 페이지 [] 리스트로만 받는 로직이랑 일단 이렇게 수정 프론트 수정 후 다시 위 ketwords 사용
-             "keywords": all_keywords[0] if all_keywords else [],
+            "pages": [
+                {
+                    "original_text": text,
+                    "keywords": keywords,
+                }
+                for text, keywords in zip(all_pages_text, all_keywords)
+            ],
             "page_count": page_count,
             "total_duration": total_duration,
         }
