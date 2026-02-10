@@ -19,12 +19,10 @@ app = APIRouter(prefix="/cycle", tags=["Weekly"])
 @app.post("/set-goal")
 async def set_study_goal(token: str = Form(...),
 email: str = Depends(get_current_user),
-payload: dict = Body(...)
+cycle_count: int = Form(...)   # 학습 목표 횟수
 ):
 
-    print(f"학습 목표 설정 유저:{email}")
-
-    cycle_count = payload.get("cycle_count")
+    print(f"학습 목표 횟수: {cycle_count}")
 
     if not cycle_count or int(cycle_count) < 1:
         return {"status": "error", "message": "올바른 목표 횟수를 입력하세요."}
@@ -32,7 +30,7 @@ payload: dict = Body(...)
     try:
         # SDK 버전 업데이트
         supabase.table("users") \
-            .update({"target_count": int(cycle_count)}) \
+            .update({"monthly_goal": int(cycle_count)}) \
             .eq("email", email).execute()
         
         return {

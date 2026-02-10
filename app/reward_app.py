@@ -21,7 +21,7 @@ def _auto_attendance_check(email: str) -> Tuple[bool, int]:
     today = date.today()
     try:
         # 1. 당일 출석체크 row 존재 여부 확인 (rewards 테이블)
-        check_res = supabase.table("rewards") \
+        check_res = supabase.table("reward_history") \
             .select("id") \
             .eq("user_email", email) \
             .eq("reason", REASON_ATTENDANCE) \
@@ -35,7 +35,7 @@ def _auto_attendance_check(email: str) -> Tuple[bool, int]:
             return False, current_pt
 
         # 2. 당일 row 없음 → rewards 테이블에 INSERT (리워드 적립)
-        supabase.table("rewards").insert({
+        supabase.table("reward_history").insert({
             "user_email": email,
             "reward_amount": REWARD_AMOUNT,
             "reason": REASON_ATTENDANCE,
@@ -73,6 +73,8 @@ async def auto_attendance_check(email: str = Depends(get_current_user)):
     - GET/POST 모두 지원 (앱 로드 시 GET으로 호출 가능)
     """
     is_new, points = _auto_attendance_check(email)
+
+    print(f"is_new: {is_new}, points: {points}")
     return {
         "status": "success",
         "is_new_reward": is_new,

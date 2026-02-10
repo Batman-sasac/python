@@ -20,13 +20,18 @@ class QuizSubmitRequest(BaseModel):
     quiz_id: int                # 퀴즈 번호 
     user_answers: List[str]          # 유저 답변 리스트
     correct_answers: List[str]      # 빈칸 답변 리스트
+    grade_cnt: int                  # 채점 횟수 
+    original_text: list[str]              # 원문 텍스트
+    keywords: List[str]             # 키워드 리스트
+    quiz_html: str                        # 퀴즈 메타 데이터
 
-# 채점 로직
+
+
+# 채점 버튼 클릭 시 리워드 제공 &ocr_data 저장
 @app.post("/grade")
 async def grade_quiz(
-    token: str = Form(...),
     email: str = Depends(get_current_user),
-    payload: dict = Body(...)
+    payload: QuizSubmitRequest = Body(...)
 ):
     print(f"채점할 유저:{email}")
     
@@ -38,24 +43,18 @@ async def grade_quiz(
     if not correct_ans or not email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
 
-    # 채점 로직
-    correct_count = 0
-    total_questions = len(correct_ans)
-    results = []
-
-    for u, c in zip(user_ans, correct_ans):
-        is_correct = (str(u).strip() == str(c).strip())
-        if is_correct:
-            correct_count += 1
-        results.append({"user": u, "correct": c, "is_correct": is_correct})
-
-    reward = correct_count
-    is_all_correct = (correct_count == total_questions)
 
     try:
-        # [1] 답변 업데이트 (JSONB 자동 처리)
+        # [1] ocr_data 저장 (JSONB 자동 처리)
         supabase.table("ocr_data") \
-            .update({"user_answers": user_ans}) \
+            .insert({
+                "user_email": email,
+                "quiz_id": quiz_id,
+                "user_answers": user_ans,
+                "answers": correct_ans,
+                "original_text": original_text,
+                "keywords": keywords,
+                "quiz_html": quiz_html}) \
             .eq("id", quiz_id) \
             .eq("user_email", email).execute()
 
@@ -65,29 +64,27 @@ async def grade_quiz(
             "user_email": email
         }).execute()
 
-        # [3] 리워드 지급 (있을 때만)
-        if reward > 0:
+        # [3] 리워드 지급 (grade_cnt > 0 일 때만)
+        if grade_cnt > 0:
             supabase.table("reward_history").insert({
                 "user_email": email,
-                "reward_amount": reward,
-                "reason": f"퀴즈 정답: {correct_count}/{total_questions}"
+                "reward_amount": grade_cnt*2,
+                "reason": f"초기 학습을 통학 리워드: {grade_cnt}개 정답"
             }).execute()
 
             # 포인트 합산 (현재 포인트 조회 후 업데이트)
             user_res = supabase.table("users").select("points").eq("email", email).single().execute()
-            new_points = (user_res.data.get("points") or 0) + reward
+            new_points = (user_res.data.get("points") or 0) + grade_cnt*2
             supabase.table("users").update({"points": new_points}).eq("email", email).execute()
 
         return {
             "status": "success",
-            "score": correct_count,
-            "total": total_questions,
-            "reward_given": reward,
-            "is_all_correct": is_all_correct,
-            "results": results
+            "score": grade_cnt, # 맞은 갯수
+            "reward_given": grade_cnt*2, # 리워드 금액
+            "new_points": new_points # 새로운 포인트
         }
     except Exception as e:
-        print(f"❌ 오류 발생: {e}")
+        print(f"오류: {e}")
         return {"status": "error", "message": str(e)}
 
 from fastapi.templating import Jinja2Templates
@@ -109,7 +106,7 @@ async def review_page(
     try:
         # DB: ocr_text (jsonb) = { pages, blanks, quiz }, answers (jsonb) = 정답 배열
         res = supabase.table("ocr_data") \
-            .select("id, subject_name, study_name, ocr_text") \
+            .select("id, subject_name, study_name, ocr_text, answers, user_answers, quiz_html") \
             .eq("id", quiz_id) \
             .eq("user_email", email) \
             .single().execute()
@@ -130,8 +127,9 @@ async def review_page(
             "subject_name": row.get("subject_name"),
             "study_name": row.get("study_name"),
             "ocr_text": [p.get("original_text", "") for p in pages],
-            "answers": answers_list,
-            "quiz_html": ocr_val.get("quiz", {}),
+            "answers": row.get("answers"),
+            "user_answers": row.get("user_answers"),
+            "quiz_html": row.get("quiz_html"),
         }
 
         return templates.TemplateResponse("review_study.html", {
