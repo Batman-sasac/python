@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
 from typing import List, Optional
-from database import supabase
+from core.database import supabase
 import json
 import psycopg2
 import psycopg2.extras
@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 app = APIRouter(prefix="/study", tags=["study"])
 

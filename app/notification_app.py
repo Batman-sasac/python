@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Body, Depends, Form
 from pydantic import BaseModel
 from typing import Optional
-from database import supabase
-from core.notification_service import scheduler
+from core.database import supabase
+from service.notification_service import scheduler
 from datetime import datetime
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 app = APIRouter()
 

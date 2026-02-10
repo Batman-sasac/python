@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends, Form
-from database import supabase
+from core.database import supabase
 import json
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
     
 
 app = APIRouter(tags=["Study"])

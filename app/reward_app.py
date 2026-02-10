@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Form
-from database import supabase
+from core.database import supabase
 from datetime import date, datetime
 from typing import Tuple, Optional
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 
 app = APIRouter(tags=["Reward"])

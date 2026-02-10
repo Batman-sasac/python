@@ -6,9 +6,9 @@ from fastapi import APIRouter, Response, Request, Header, Form, Depends
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from dotenv import load_dotenv
-from database import supabase
+from core.database import supabase
 from pydantic import BaseModel
-from app.security.security_app import create_jwt_token, get_current_user
+from app.security_app import create_jwt_token, get_current_user
 import jwt
 from datetime import datetime, timedelta, date
 from fastapi.responses import JSONResponse
@@ -19,8 +19,6 @@ from fastapi import Form
 load_dotenv()
 app = APIRouter(prefix="/auth", tags=["Auth"])
 
-class KakaoLoginRequest(BaseModel):
-    code: str
 
 class NicknameUpdate(BaseModel): # 프론트에 맞춰 Form이 아닌 data로
     nickname: str

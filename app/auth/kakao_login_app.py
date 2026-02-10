@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import supabase
+from core.database import supabase
 import os
 import requests
-from app.security.security_app import create_jwt_token
+from app.security_app import create_jwt_token
+from pydantic import BaseModel
 
 app = APIRouter(prefix="/auth", tags=["Auth"])
+
+class KakaoLoginRequest(BaseModel):
+    code: str
 
 
 

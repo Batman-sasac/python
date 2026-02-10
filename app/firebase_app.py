@@ -1,13 +1,17 @@
 from fastapi import APIRouter, Body, Depends, Form
-from database import supabase
+from core.database import supabase
+from pydantic import BaseModel
+from app.security_app import get_current_user
 
-from app.security.security_app import get_current_user
+app = APIRouter(prefix="/firebase", tags=["Firebase"])
 
-app = APIRouter()
+class UpdateFcmTokenRequest(BaseModel):
+    fcm_token: str
 
 #users DB fcm_token 저장
 @app.post("/user/update-fcm-token")
-async def update_fcm_token(payload: dict = Body(...),
+async def update_fcm_token(
+    payload: UpdateFcmTokenRequest,
     token: str = Form(...),
     email: str = Depends(get_current_user)
     ):

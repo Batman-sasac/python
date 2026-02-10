@@ -2,11 +2,17 @@ import os
 from fastapi import APIRouter, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 import requests
-from database import supabase
-from app.security.security_app import create_jwt_token
+from core.database import supabase
+from app.security_app import create_jwt_token
 
 app = APIRouter(prefix="/auth", tags=["Auth"])
 
+"""
+class NaverMobileLoginRequest(BaseModel):
+    code: str
+    state: str
+
+    """
 
 # --- [1. 네이버 로그인 콜백 - GET으로 code 받고 HTML 반환] ---
 @app.get("/naver/mobile")

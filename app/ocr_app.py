@@ -11,12 +11,12 @@ from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any, Union
 import os
-from database import supabase
+from core.database import supabase
 
-from core.clova_ocr_service import CLOVAOCRService
+from service.clova_ocr_service import CLOVAOCRService
 
 
-from core.ocr_usage_service import (
+from service.ocr_usage_service import (
     OCR_PAGE_LIMIT,
     estimate_page_count,
     get_user_ocr_usage,
@@ -25,7 +25,7 @@ from core.ocr_usage_service import (
 )
 
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 app = APIRouter(tags=["OCR"])
 

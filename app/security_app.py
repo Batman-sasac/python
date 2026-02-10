@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, Depends, Header
 from typing import Optional
 
-# .env는 프로젝트 루트(bat_python) 기준으로 로드
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+# .env는 프로젝트 루트 기준으로 로드 (app/security_app.py -> 한 단계 위가 루트)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 # ✅ 1. 설정값 통일 (변수명을 JWT_SECRET_KEY로 통일)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")

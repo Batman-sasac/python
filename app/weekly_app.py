@@ -5,12 +5,12 @@ from typing import Optional
 from fastapi.responses import HTMLResponse
 import psycopg2
 import os
-from database import supabase
+from core.database import supabase
 from flask import Flask, request, jsonify
 from datetime import datetime, date, timedelta
 import calendar
 
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 app = APIRouter(prefix="/cycle", tags=["Weekly"])
 

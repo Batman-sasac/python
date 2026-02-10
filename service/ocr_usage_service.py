@@ -2,9 +2,9 @@
 
 import io
 from typing import Tuple
-from database import supabase
+from core.database import supabase
 from pypdf import PdfReader
-from app.security.security_app import get_current_user
+from app.security_app import get_current_user
 
 
 # 회원당 Clova OCR 페이지 사용 한도

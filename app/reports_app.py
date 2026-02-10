@@ -7,8 +7,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.security.security_app import get_current_user
-from database import supabase
+from app.security_app import get_current_user
+from core.database import supabase
 
 
 app = APIRouter(prefix="/reports", tags=["Reports"])
