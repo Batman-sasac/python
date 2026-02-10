@@ -1,29 +1,25 @@
 # /, /home, /index
 
 from fastapi import FastAPI, Request
-from typing import Optional
 import uvicorn
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app import ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
 from app.firebase import firebase_app
-from app.reward_app import check_attendance_and_reward
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import jwt
-from database import get_db
-
-
-from core.notification_service import send_fcm_notification
-
-# 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-
+from database import supabase
 
 app = FastAPI()
+
+# 정적 파일 제공 (필요시)
+if os.path.exists("static"):
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
 app.include_router(user_app.app)
 app.include_router(ocr_app.app)
 app.include_router(study_app.app)
@@ -35,14 +31,24 @@ app.include_router(firebase_app.app)
 # 앱과 통신 허용 (CORS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     import sys
+    
+    # CORS preflight 요청(OPTIONS)은 인증 없이 통과
+    if request.method == "OPTIONS":
+        return await call_next(request)
     
     exclude_paths = [
         "/", "/auth/login", "/auth/kakao/callback", "/auth/kakao/mobile", 

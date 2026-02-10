@@ -1,6 +1,5 @@
 import os
 import requests
-import psycopg2
 from fastapi import APIRouter, Response, Request, Header, Form
 from fastapi.responses import RedirectResponse
 from typing import Optional
@@ -195,6 +194,64 @@ async def set_nickname(data: UserData):
         print(f"❌ 닉네임 저장 에러: {e}")
         return JSONResponse(status_code=500, content={"detail": str(e)})
 
+
+# --- [3. 사용자 통계 조회] ---
+from app.security_app import get_current_user
+from fastapi import Depends
+
+@app.get("/user/stats")
+async def get_user_stats(
+    email: str = Depends(get_current_user)
+):
+    """사용자 통계 정보 반환 (포인트, OCR 사용량, 연속 출석일, 월 목표)"""
+    try:
+        # 사용자 기본 정보 조회
+        user_res = supabase.table("users").select(
+            "points, ocrpages_used, monthly_goal"
+        ).eq("email", email).single().execute()
+        
+        if not user_res.data:
+            return JSONResponse(status_code=404, content={"error": "사용자를 찾을 수 없습니다"})
+        
+        user_data = user_res.data
+        
+        # 연속 출석일 계산 (reward_history 테이블에서)
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+        consecutive_days = 0
+        
+        # 출석체크 기록 조회 (최근 30일)
+        attendance_res = supabase.table("reward_history").select(
+            "created_at"
+        ).eq("user_email", email).eq(
+            "reason", "출석체크"
+        ).gte(
+            "created_at", (today - timedelta(days=30)).isoformat()
+        ).order("created_at", desc=True).execute()
+        
+        if attendance_res.data:
+            # 연속 출석일 계산
+            check_date = today
+            for record in attendance_res.data:
+                record_date = datetime.fromisoformat(record['created_at'].replace('Z', '+00:00')).date()
+                if record_date == check_date or record_date == check_date - timedelta(days=1):
+                    consecutive_days += 1
+                    check_date = record_date - timedelta(days=1)
+                else:
+                    break
+        
+        return {
+            "status": "success",
+            "data": {
+                "points": user_data.get("points", 0),
+                "ocrpages_used": user_data.get("ocrpages_used", 0),
+                "consecutive_days": consecutive_days,
+                "monthly_goal": user_data.get("monthly_goal")
+            }
+        }
+    except Exception as e:
+        print(f"❌ 사용자 통계 조회 에러: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 

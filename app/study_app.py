@@ -1,15 +1,12 @@
 # 재첨 후 정답 저장 
 
-from fastapi import APIRouter, HTTPException, Body, Request
+from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 from database import supabase
-import json
-import psycopg2
-import psycopg2.extras
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from datetime import datetime
+
+from app.security_app import get_current_user
 
 app = APIRouter(prefix="/study", tags=["study"])
 
@@ -22,15 +19,15 @@ class QuizSubmitRequest(BaseModel):
 # 채점 로직
 @app.post("/grade")
 async def grade_quiz(
-    request : Request,
+    email: str = Depends(get_current_user),
     payload: dict = Body(...)
 ):
-    user_email = request.state.user_email
+    user_email = email
     
     # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
-    correct_ans = payload.get('answer', [])
-    user_ans = payload.get('user_answers', [])
-    quiz_id = payload.get('quiz_id')
+    correct_ans = payload.get('answer') or payload.get('answers') or payload.get('correct_answers') or []
+    user_ans = payload.get('user_answers') or payload.get('userAnswers') or []
+    quiz_id = payload.get('quiz_id') or payload.get('quizId')
 
     if not correct_ans or not user_email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
@@ -58,8 +55,9 @@ async def grade_quiz(
 
         # [2] 학습 로그 기록
         supabase.table("study_logs").insert({
-            "quiz_id": quiz_id, 
-            "user_email": user_email
+            "quiz_id": quiz_id,
+            "user_email": user_email,
+            "completed_at": datetime.utcnow().isoformat(),
         }).execute()
 
         # [3] 리워드 지급 (있을 때만)

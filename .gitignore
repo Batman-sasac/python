@@ -2,3 +2,5 @@
 google-key.json
 secrets/
 test/
+__pycache__/
+*.pyc

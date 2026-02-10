@@ -24,20 +24,38 @@ class QuizSaveRequest(BaseModel):
     answers: Optional[List[str]] = []
 
 
-# 예상 소요 시간 반환
-@app.post("/ocr/estimate")
-async def get_estimate(file: UploadFile = File(...)):
-    # 가볍게 파일 정보만 읽어서 시간 계산
-    file_bytes = await file.read()
+# 예상 소요 시간 반환 (현재 미사용)
+# @app.post("/ocr/estimate")
+# async def get_estimate(file: UploadFile = File(...)):
+#     file_bytes = await file.read()
+#     files_data = [{"filename": file.filename, "bytes": file_bytes}]
+#     result_msg = clova_service.get_estimation_message(files_data)
+#     return {"estimated_time": result_msg}
 
-    files_data = []
-    for file in files:
-        content = await file.read()
-        files_data.append({"filename": file.filename, "bytes": content})
+# OCR 사용량 조회 엔드포인트
+@app.get("/ocr/usage")
+async def get_ocr_usage(request: Request):
+    user_email = request.state.user_email
     
-    result_msg = service.get_estimation_message(files_data)
-    
-    return {"estimated_time": result_msg}
+    try:
+        # 사용자 OCR 사용량 조회
+        user = supabase.table("users").select("ocrpages_used").eq("email", user_email).single().execute()
+        
+        pages_used = user.data.get("ocrpages_used", 0) if user.data else 0
+        pages_limit = 50  # 월 무료 한도
+        remaining = max(0, pages_limit - pages_used)
+        
+        return {
+            "status": "success",
+            "pages_used": pages_used,
+            "pages_limit": pages_limit,
+            "remaining": remaining,
+            "message": f"이번 달 남은 OCR 횟수: {remaining}/{pages_limit}"
+        }
+    except Exception as e:
+        print(f"OCR 사용량 조회 오류: {e}")
+        return {"status": "error", "message": str(e)}
+
 
 # 1. OCR 텍스트 추출 엔드포인트 수정
 @app.post("/ocr")
@@ -82,16 +100,15 @@ request: Request):
         }
 
         response = supabase.table("ocr_data").insert(insert_data).execute()
+        
+        new_id = response.data[0]['id']
 
         print("\n" + "✅"*10 + " OCR 데이터 저장 성공 " + "✅"*10)
         print(f"ID      : {new_id}")
         print(f"사용자  : {user_email}")
         print(f"과목명  : {data.subject_name}")
-        print(f"키워드수: {len(answers_json)}개")
-        print(f"🔹 원본 내용 미리보기: {ocr_text_json}")
+        print(f"키워드수: {len(data.answers or [])}개")
         print("="*45 + "\n")
-        
-        new_id = response.data[0]['id']
 
         return {"status": "success", "quiz_id": new_id}
     except Exception as e:
@@ -135,6 +152,56 @@ quiz_id: int):
         return {"status": "error", "message": str(e)}
 
 
+# 복습용 퀴즈 데이터 조회 /ocr/quiz/{quiz_id}
+@app.get("/ocr/quiz/{quiz_id}")
+async def get_quiz_for_review(request: Request, quiz_id: int):
+    user_email = request.state.user_email
+    
+    try:
+        response = supabase.table("ocr_data") \
+            .select("*") \
+            .eq("id", quiz_id) \
+            .eq("user_email", user_email) \
+            .single() \
+            .execute()
+        
+        if not response.data:
+            return {"status": "error", "message": "퀴즈를 찾을 수 없습니다."}
+        
+        data = response.data
+        
+        # DB 형식을 프론트엔드 ScaffoldingPayload 형식으로 변환
+        ocr_text_list = data.get("ocr_text", [])
+        answers_list = data.get("answers", [])
+        
+        # 텍스트 합치기
+        extracted_text = "\n\n".join(ocr_text_list) if isinstance(ocr_text_list, list) else str(ocr_text_list)
+        
+        # blanks 배열 생성
+        blanks = []
+        if isinstance(answers_list, list):
+            for idx, word in enumerate(answers_list):
+                blanks.append({
+                    "id": idx,
+                    "word": str(word),
+                    "meaningLong": f"{word}의 뜻"
+                })
+        
+        return {
+            "status": "success",
+            "data": {
+                "quiz_id": data["id"],
+                "title": data.get("subject_name", "") or data.get("study_name", "학습 자료"),
+                "extractedText": extracted_text,
+                "blanks": blanks,
+                "user_answers": data.get("user_answers", [])
+            }
+        }
+    except Exception as e:
+        print(f"퀴즈 조회 오류: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # 학습 목록 /ocr/list
 from fastapi import Query, Cookie
 
@@ -148,9 +215,7 @@ async def get_ocr_list(
     user_email = request.state.user_email
 
     start = (page - 1) * size
-
-    conn = get_db()
-    cur = conn.cursor()
+    end = start + size - 1
 
     try:
         # PostgreSQL의 복잡한 CASE 문은 RPC(함수)를 쓰거나 

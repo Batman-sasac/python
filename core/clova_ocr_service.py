@@ -55,14 +55,24 @@ class CLOVAOCRService:
     
     
     
-    def extract_text_with_clova(files_data):
+    def extract_text_with_clova(self, file_bytes, filename):
         """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출"""
 
         pages_text = []
         
         try:
-            # 파일 확장자 확인
-            file_ext = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
+            # 파일 확장자 확인 (file:// URI 처리)
+            if '.' in filename:
+                # file://로 시작하면 실제 파일명 추출
+                if 'file://' in filename:
+                    filename = filename.split('/')[-1]
+                file_ext = filename.split('.')[-1].lower()
+                # Clova가 인식하는 확장자만 허용
+                valid_exts = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'pdf']
+                if file_ext not in valid_exts:
+                    file_ext = 'jpg'  # 기본값
+            else:
+                file_ext = 'jpg'
             
             # 클로바 OCR 요청 데이터 구성
             request_json = {
@@ -190,11 +200,19 @@ class CLOVAOCRService:
         
         total_duration = time.time() - total_start
         print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초")
-        # 3. 최종 결과 반환
+        
+        # 3. 프론트엔드 형식에 맞춰 페이지별 데이터 구성
+        pages_data = []
+        for i, (text, kws) in enumerate(zip(all_pages_text, pages_keywords)):
+            pages_data.append({
+                "original_text": text,
+                "keywords": kws
+            })
+        
+        # 4. 최종 결과 반환
         return {
             "status": "success",
-            "pages": all_pages_text,
-            "pages_keywords": pages_keywords,
+            "pages": pages_data,
             "original_text": all_pages_text[0] if all_pages_text else "",
             "keywords": pages_keywords[0] if pages_keywords else [],
             "total_duration": total_duration,

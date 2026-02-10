@@ -52,3 +52,40 @@ async def check_attendance_and_reward(user_email: str):
     except Exception as e:
         print(f"❌ 리워드 지급 중 오류 발생: {e}")
         return False, 0
+
+
+# 리더보드 조회 엔드포인트
+from app.security_app import get_current_user
+from fastapi import Depends
+
+@app.get("/reward/leaderboard")
+async def get_leaderboard(
+    email: str = Depends(get_current_user)
+):
+    """포인트 기준 리더보드 조회"""
+    try:
+        # 전체 사용자 포인트 순위 조회 (상위 100명)
+        leaderboard_res = supabase.table("users").select(
+            "email, nickname, points"
+        ).order("points", desc=True).limit(100).execute()
+        
+        if not leaderboard_res.data:
+            return {"status": "success", "leaderboard": []}
+        
+        # 리더보드 데이터 가공
+        leaderboard = []
+        for idx, user in enumerate(leaderboard_res.data, start=1):
+            leaderboard.append({
+                "rank": idx,
+                "nickname": user.get("nickname", "익명"),
+                "email": user.get("email"),
+                "points": user.get("points", 0)
+            })
+        
+        return {
+            "status": "success",
+            "leaderboard": leaderboard
+        }
+    except Exception as e:
+        print(f"❌ 리더보드 조회 에러: {e}")
+        return {"status": "error", "message": str(e), "leaderboard": []}
