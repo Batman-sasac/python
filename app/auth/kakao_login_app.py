@@ -76,7 +76,8 @@ async def kakao_callback(code: str = Form(...)):
     print(f"[카카오 로그인] code 수신: {code[:20]}...")
 
     client_id = "5202f1b3b542b79fdf499d766362bef6"
-    redirect_uri = "http://127.0.0.1:8000/auth/kakao/mobile"
+    # localhost와 127.0.0.1 모두 지원
+    redirect_uri = "http://localhost:8000/auth/kakao/mobile"
     
     # 1. 카카오 Access Token 발급
     token_url = "https://kauth.kakao.com/oauth/token"

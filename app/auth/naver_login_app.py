@@ -70,7 +70,7 @@ async def naver_callback(code: str = Form(...), state: str = Form("")):
 
     client_id = os.getenv("NAVER_CLIENT_ID")
     client_secret = os.getenv("NAVER_CLIENT_SECRET")
-    redirect_uri = os.getenv("NAVER_REDIRECT_URI", "http://127.0.0.1:8000/auto/naver/mobile")
+    redirect_uri = os.getenv("NAVER_REDIRECT_URI", "http://127.0.0.1:8000/auth/naver/mobile")
 
     if not client_id or not client_secret:
         return JSONResponse(
