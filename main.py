@@ -1,5 +1,10 @@
 # /, /home, /index
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from typing import Optional
 import uvicorn
@@ -11,8 +16,6 @@ from app.auth import naver_login_app, kakao_login_app
 from app.firebase_app import app as firebase_app
 from app.reward_app import check_attendance_and_reward
 
-
-import os
 
 import jwt
 
@@ -51,10 +54,18 @@ app.add_middleware(
 
 @app.get("/config")
 async def get_config():
-    # 설정 정보 반환
+    """프론트엔드 OAuth 설정 (환경변수에서 로드)"""
     return {
         "kakao_rest_api_key": os.getenv("KAKAO_REST_API_KEY"),
-        "naver_cilent_id": os.getenv("NAVER_CLIENT_ID")
+        "kakao_redirect_uri": os.getenv(
+            "KAKAO_REDIRECT_URI",
+            (os.getenv("API_BASE_URL") or "http://localhost:8000") + "/auth/kakao/mobile",
+        ),
+        "naver_client_id": os.getenv("NAVER_CLIENT_ID"),
+        "naver_redirect_uri": os.getenv(
+            "NAVER_REDIRECT_URI",
+            (os.getenv("API_BASE_URL") or "http://127.0.0.1:8000") + "/auth/naver/mobile",
+        ),
     }
 
 """

@@ -8,6 +8,10 @@ from pydantic import BaseModel
 
 app = APIRouter(prefix="/auth", tags=["Auth"])
 
+# .env 로드 (security_app import 시 로드되지만, 독립 실행 시 대비)
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+
 class KakaoLoginRequest(BaseModel):
     code: str
 
@@ -68,26 +72,44 @@ async def kakao_callback_redirect(code: str):
 # --- [1-2. 카카오 로그인 처리 - POST로 실제 로그인] ---
 @app.post("/kakao/mobile")
 async def kakao_callback(code: str = Form(...)):
-    
-    # FormData로 code 받기
+    import traceback
+    try:
+        return await _kakao_callback_impl(code)
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(f"[카카오 로그인] 예외 발생: {e}")
+        print(tb)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal Server Error", "detail": str(e)},
+        )
+
+
+async def _kakao_callback_impl(code: str):
     if not code:
         return JSONResponse(status_code=400, content={"error": "code가 필요합니다"})
     
     print(f"[카카오 로그인] code 수신: {code[:20]}...")
 
-    client_id = "5202f1b3b542b79fdf499d766362bef6"
-    # localhost와 127.0.0.1 모두 지원
-    redirect_uri = "http://localhost:8000/auth/kakao/mobile"
-    
-    # 1. 카카오 Access Token 발급
+    client_id = os.getenv("KAKAO_REST_API_KEY")
+    redirect_uri = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:8000/auth/kakao/mobile")
+    client_secret = os.getenv("KAKAO_CLIENT_SECRET")
+
+    if not client_id:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "KAKAO_REST_API_KEY를 .env에 설정해주세요."},
+        )
+
     token_url = "https://kauth.kakao.com/oauth/token"
     token_data = {
         "grant_type": "authorization_code",
         "client_id": client_id,
-        "client_secret": os.getenv("KAKAO_CLIENT_SECRET"),
         "redirect_uri": redirect_uri,
         "code": code,
     }
+    if client_secret:
+        token_data["client_secret"] = client_secret
 
     print(f"[STEP 2] 카카오 토큰 요청 데이터 확인:")
     print(f" - URL: {token_url}")
@@ -112,7 +134,9 @@ async def kakao_callback(code: str = Form(...)):
     ).json()
 
     social_id = str(user_info_res.get("id"))
-    user_email = user_info_res.get("kakao_account", {}).get("email", "")
+    user_email = user_info_res.get("kakao_account", {}).get("email", "") or ""
+    if not user_email:
+        user_email = f"kakao_{social_id}@kakao.oauth"
     token = create_jwt_token(user_email, social_id)
 
     print(f"JWT token: {token}")
@@ -123,21 +147,34 @@ async def kakao_callback(code: str = Form(...)):
         user_data = user_res.data
 
         if not user_data:
-            # [신규 유저] DB 저장 (닉네임은 NULL로 시작)
-            supabase.table("users").insert({
-                "social_id": social_id, 
-                "email": user_email, 
-                "nickname": None
-            }).execute()
-            
-            print(f"[카카오 로그인] 신규 유저: {user_email}")
-            # 신규 유저는 닉네임 설정 페이지로 유도 (클라이언트에서 처리할 status 반환)
-            return {
-                "status": "NICKNAME_REQUIRED",
-                "social_id": social_id,
-                "token": token,
-                "email": user_email
-            }
+            try:
+                # [신규 유저] DB 저장 (닉네임은 NULL로 시작)
+                supabase.table("users").insert({
+                    "social_id": social_id,
+                    "email": user_email,
+                    "nickname": None
+                }).execute()
+                print(f"[카카오 로그인] 신규 유저: {user_email}")
+                return {
+                    "status": "NICKNAME_REQUIRED",
+                    "social_id": social_id,
+                    "token": token,
+                    "email": user_email
+                }
+            except Exception as insert_err:
+                err_str = str(insert_err)
+                # 이메일 중복: 기존 계정에 카카오 social_id 연결
+                if "23505" in err_str or "duplicate key" in err_str.lower() or "users_email_key" in err_str:
+                    print(f"[카카오 로그인] 이메일 중복 - 기존 계정에 연동: {user_email}")
+                    exist_res = supabase.table("users").select("nickname, social_id").eq("email", user_email).execute()
+                    if exist_res.data:
+                        row = exist_res.data[0]
+                        supabase.table("users").update({"social_id": social_id}).eq("email", user_email).execute()
+                        nickname = row.get("nickname")
+                        if not nickname:
+                            return {"status": "NICKNAME_REQUIRED", "social_id": social_id, "email": user_email, "token": token}
+                        return {"status": "success", "token": token, "email": user_email, "nickname": nickname}
+                raise
 
         # [기존 유저] 닉네임이 이미 있다면 바로 토큰 발급
         nickname = user_data[0].get("nickname")
@@ -159,6 +196,5 @@ async def kakao_callback(code: str = Form(...)):
         }
 
     except Exception as e:
-        print(f"DB 에러 발생: {e}")
-        return JSONResponse(status_code=500, content={"error": "Internal Server Error"})
+        raise
 
