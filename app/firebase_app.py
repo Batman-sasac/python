@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Depends, Form
+from fastapi import APIRouter, Depends
 from core.database import supabase
 from pydantic import BaseModel
 from app.security_app import get_current_user
@@ -12,11 +12,10 @@ class UpdateFcmTokenRequest(BaseModel):
 @app.post("/user/update-fcm-token")
 async def update_fcm_token(
     payload: UpdateFcmTokenRequest,
-    token: str = Form(...),
-    email: str = Depends(get_current_user)
-    ):
+    email: str = Depends(get_current_user),
+):
     
-    fcm_token = payload.get("fcm_token")
+    fcm_token = payload.fcm_token
     
     if not fcm_token:
         return {"status": "error", "message": "토큰이 없습니다."}

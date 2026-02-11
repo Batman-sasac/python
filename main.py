@@ -20,8 +20,6 @@ from app.reward_app import check_attendance_and_reward
 import jwt
 
 
-from service.notification_service import send_fcm_notification
-
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")

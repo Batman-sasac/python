@@ -30,8 +30,9 @@ supabase
 # Firebase
 firebase-admin
 
-# 스케줄러 (알림 등)
-apscheduler
+# Celery + Redis (알림 스케줄)
+celery[redis]
+redis
 
 # GCS (utils/file_handler.py)
 google-cloud-storage

@@ -36,60 +36,73 @@ async def grade_quiz(
     print(f"채점할 유저:{email}")
     
     # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
-    correct_ans = payload.get('answer', [])
-    user_ans = payload.get('user_answers', [])
-    quiz_id = payload.get('quiz_id')
+    quiz_id = payload.quiz_id
+    user_ans = payload.user_answers
+    correct_ans = payload.correct_answers
+    grade_cnt = payload.grade_cnt
+    original_text = payload.original_text
+    keywords = payload.keywords
+    quiz_html = payload.quiz_html
 
     if not correct_ans or not email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
 
-
     try:
-        # [1] ocr_data 저장 (JSONB 자동 처리)
-        supabase.table("ocr_data") \
-            .insert({
-                "user_email": email,
-                "quiz_id": quiz_id,
-                "user_answers": user_ans,
-                "answers": correct_ans,
-                "original_text": original_text,
-                "keywords": keywords,
-                "quiz_html": quiz_html}) \
-            .eq("id", quiz_id) \
-            .eq("user_email", email).execute()
+        # [1] OCR 데이터 저장
+        supabase.table("ocr_data").insert({
+            "user_email": email,
+            "quiz_id": quiz_id,
+            "user_answers": user_ans,
+            "answers": correct_ans,
+            "original_text": original_text,
+            "keywords": keywords,
+            "quiz_html": quiz_html
+        }).execute()
 
-        # [2] 학습 로그 기록
+        # [2] 학습 로그 저장
         supabase.table("study_logs").insert({
-            "quiz_id": quiz_id, 
+            "quiz_id": quiz_id,
             "user_email": email
         }).execute()
 
-        # [3] 리워드 지급 (grade_cnt > 0 일 때만)
+        new_points = None
+
+        # [3] 리워드 지급
         if grade_cnt > 0:
+            reward_amount = grade_cnt * 2
+
             supabase.table("reward_history").insert({
                 "user_email": email,
-                "reward_amount": grade_cnt*2,
-                "reason": f"초기 학습을 통학 리워드: {grade_cnt}개 정답"
+                "reward_amount": reward_amount,
+                "reason": f"초기 학습 리워드: {grade_cnt}개 정답"
             }).execute()
 
-            # 포인트 합산 (현재 포인트 조회 후 업데이트)
-            user_res = supabase.table("users").select("points").eq("email", email).single().execute()
-            new_points = (user_res.data.get("points") or 0) + grade_cnt*2
-            supabase.table("users").update({"points": new_points}).eq("email", email).execute()
+            # 현재 포인트 조회
+            user_res = supabase.table("users") \
+                .select("points") \
+                .eq("email", email) \
+                .single() \
+                .execute()
+
+            current_points = user_res.data.get("points") or 0
+            new_points = current_points + reward_amount
+
+            # 포인트 업데이트
+            supabase.table("users") \
+                .update({"points": new_points}) \
+                .eq("email", email) \
+                .execute()
 
         return {
             "status": "success",
-            "score": grade_cnt, # 맞은 갯수
-            "reward_given": grade_cnt*2, # 리워드 금액
-            "new_points": new_points # 새로운 포인트
+            "score": grade_cnt,
+            "reward_given": grade_cnt * 2 if grade_cnt > 0 else 0,
+            "new_points": new_points
         }
+
     except Exception as e:
         print(f"오류: {e}")
         return {"status": "error", "message": str(e)}
-
-from fastapi.templating import Jinja2Templates
-
-templates = Jinja2Templates(directory="templates")
 
 # 복습화면
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
