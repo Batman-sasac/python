@@ -76,16 +76,14 @@ async def get_user_stats(email: str = Depends(get_current_user)):
     try:
         today = date.today()
 
-        # 1. 총 학습 횟수: study_logs 전체 건수
+        # 1. 총 학습 횟수: study_logs 전체 건수 (count만 조회)
         total_res = supabase.table("study_logs") \
             .select("id", count="exact") \
             .eq("user_email", email) \
             .execute()
         total_learning_count = getattr(total_res, "count", None)
-        if total_learning_count is None and total_res.data is not None:
-            total_learning_count = len(total_res.data)
         if total_learning_count is None:
-            total_learning_count = 0
+            total_learning_count = len(total_res.data or [])
 
         # 2. 총 학습일·연속 학습일: study_logs.completed_at 기준 distinct 날짜 계산
         logs_res = supabase.table("study_logs") \
@@ -118,12 +116,17 @@ async def get_user_stats(email: str = Depends(get_current_user)):
         if user_res.data and user_res.data.get("monthly_goal") is not None:
             monthly_goal = int(user_res.data["monthly_goal"])
 
+
+        print(f"total_learning_count: {total_learning_count}")
+        print(f"consecutive_days: {consecutive_days}")
+        print(f"monthly_goal: {user_res.data}")
+
         return {
             "status": "success",
             "data": {
-                "total_learning_count": total_learning_count,
-                "consecutive_days": consecutive_days,
-                "monthly_goal": monthly_goal,
+                "total_learning_count": total_learning_count, # 총 학습 횟수
+                "consecutive_days": consecutive_days, # 연속 학습일
+                "monthly_goal": monthly_goal, # 한달 목표
             }
         }
     except Exception as e:

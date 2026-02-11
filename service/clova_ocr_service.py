@@ -58,8 +58,9 @@ class CLOVAOCRService:
     
     
     def extract_text_with_clova(self, file_bytes, filename):
-        """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출"""
-
+        """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출.
+        file_bytes: 원본 또는 ocr_app에서 crop된 잘린 이미지 bytes (좌표 적용 후 넘어옴).
+        """
         pages_text = []
         
         try:
@@ -161,11 +162,11 @@ class CLOVAOCRService:
 
     
     def process_file(self, file_bytes, filename):
-        """텍스트 추출 및 페이지별 GPT 키워드 추출 실행"""
-
+        """텍스트 추출 및 페이지별 GPT 키워드 추출 실행.
+        file_bytes: ocr_app에서 전달 — crop 적용 시 잘린 이미지 bytes만 넘어옴.
+        """
         total_start = time.time()
-        
-        # 1. OCR 텍스트 추출 (리스트 형태로 받음)
+        # 1. OCR 텍스트 추출 (전달받은 이미지 = 원본 또는 잘린 영역만)
         all_pages_text = self.extract_text_with_clova(file_bytes, filename)
         
 

@@ -6,11 +6,13 @@
 # - user_answers (jsonb): 사용자 작성 답변 [ "답1", "답2", ... ]
 # - quiz_html (jsonb): 퀴즈 메타 { "raw": "..." }
 
+import io
 import json
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any, Union
 import os
+from PIL import Image
 from core.database import supabase
 
 from service.clova_ocr_service import CLOVAOCRService
@@ -102,17 +104,60 @@ async def get_estimate(file: UploadFile = File(...)):
     
     return {"estimated_time": result_msg}
 
-# 1. OCR 텍스트 추출 엔드포인트
+def _crop_image_to_region(file_bytes: bytes, filename: str, px: int, py: int, pw: int, ph: int) -> bytes:
+    """원본 이미지에서 (px, py) 크기 (pw, ph) 영역만 잘라 bytes로 반환. 좌표는 원본 픽셀 기준."""
+    img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    w, h = img.size
+    # 경계 클램프
+    x1 = max(0, min(px, w - 1))
+    y1 = max(0, min(py, h - 1))
+    x2 = max(x1 + 1, min(px + pw, w))
+    y2 = max(y1 + 1, min(py + ph, h))
+    cropped = img.crop((x1, y1, x2, y2))
+    buf = io.BytesIO()
+    ext = (filename or "").split(".")[-1].lower()
+    if ext == "png":
+        cropped.save(buf, format="PNG")
+    else:
+        cropped.save(buf, format="JPEG", quality=95)
+    return buf.getvalue()
+
+
+# 1. OCR 텍스트 추출 엔드포인트 (crop: 프론트에서 전달 시 잘린 영역만 OCR)
 @app.post("/ocr")
 async def run_ocr_endpoint(
     file: UploadFile = File(...),
     email: str = Depends(get_current_user),
+    crop_x: Optional[str] = Form(None),
+    crop_y: Optional[str] = Form(None),
+    crop_width: Optional[str] = Form(None),
+    crop_height: Optional[str] = Form(None),
 ):
     try:
         file_bytes = await file.read()
+        filename = file.filename or "image.jpg"
+
+        # 수신한 crop 값 로그 (디버깅)
+        print(f"[OCR] 수신 crop_x={crop_x!r}, crop_y={crop_y!r}, crop_width={crop_width!r}, crop_height={crop_height!r}")
+
+        # 이미지 좌표( crop )가 오면 그 영역만 잘라서 OCR — 전체 이미지 사용 안 함
+        if all(v is not None and str(v).strip() != "" for v in (crop_x, crop_y, crop_width, crop_height)):
+            try:
+                px, py, pw, ph = int(float(crop_x)), int(float(crop_y)), int(float(crop_width)), int(float(crop_height))
+                if pw > 0 and ph > 0:
+                    print(f"✅ OCR crop 수신: px={px}, py={py}, pw={pw}, ph={ph} → 좌표 영역만 OCR")
+                    file_bytes = _crop_image_to_region(file_bytes, filename, px, py, pw, ph)
+                    # 잘린 이미지 포맷에 맞춰 파일명 변경 (Clova 포맷 인식용)
+                    ext = (filename or "").split(".")[-1].lower()
+                    filename = f"cropped.{'png' if ext == 'png' else 'jpg'}"
+                    print(f"✅ crop 적용 완료, 좌표 영역만 추출 대상. 크기: {len(file_bytes)} bytes")
+                else:
+                    print(f"⚠️ OCR crop 무시 (pw 또는 ph 0): pw={pw}, ph={ph}")
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ OCR crop 파싱 실패: {e}")
 
         # 사용량 한도 체크 (OCR 호출 전)
-        estimated = estimate_page_count(file_bytes, file.filename or "")
+        estimated = estimate_page_count(file_bytes, filename)
         can_use, used = check_can_use(email, estimated)
         if not can_use:
             return {
@@ -122,8 +167,8 @@ async def run_ocr_endpoint(
                 "pages_limit": OCR_PAGE_LIMIT,
             }
 
-        # 네이버 OCR로 텍스트 추출
-        result = clova_service.process_file(file_bytes, file.filename)
+        # 네이버 OCR: crop 이 있으면 잘린 영역 이미지만 전달 → 좌표 영역에서 추출한 텍스트만 결과로 반환
+        result = clova_service.process_file(file_bytes, filename)
         print(f"ocr 결과:{result}")
 
         if result["status"] == "error":
@@ -133,12 +178,68 @@ async def run_ocr_endpoint(
         page_count = result.get("page_count", 1)
         add_ocr_usage(email, page_count)
 
+        # 응답: 잘린 영역에서 추출한 텍스트(original_text, keywords)만 반환. 이미지 bytes는 반환하지 않음.
         return {"status": "success", "data": result}
 
     except Exception as e:
         print(f"서버 내부 에러: {e}")
         return {"status": "error", "message": str(e)}
 
+
+# 스캐폴딩 학습 저장 (페이지·빈칸·사용자 답변 → ocr_data insert)
+@app.post("/ocr/save-test")
+async def save_test(
+    payload: QuizSaveRequest,
+    email: str = Depends(get_current_user),
+):
+    """
+    프론트 SaveTestRequest와 동일 스펙.
+    ocr_data에 subject_name, study_name, ocr_text(pages/blanks/quiz), answers, user_answers 저장.
+    """
+    try:
+        # ocr_text (jsonb): { "pages": [...], "blanks": [...], "quiz": ... }
+        pages = payload.pages
+        if not pages and payload.original is not None:
+            pages = [PageItem(original_text=payload.original or "", keywords=[])]
+        elif not pages:
+            pages = []
+
+        blanks = payload.blanks or []
+        quiz_val = payload.quiz
+        if isinstance(quiz_val, str):
+            quiz_val = {"raw": quiz_val}
+        elif quiz_val is None:
+            quiz_val = {}
+
+        ocr_text = {
+            "pages": [p.model_dump() if hasattr(p, "model_dump") else p for p in pages],
+            "blanks": [b.model_dump() if hasattr(b, "model_dump") else b for b in blanks],
+            "quiz": quiz_val,
+        }
+
+        # 정답 배열: blanks 순서대로 word, 없으면 payload.answers
+        answers = payload.answers
+        if answers is None and blanks:
+            answers = [b.word if hasattr(b, "word") else b.get("word", "") for b in blanks]
+        if answers is None:
+            answers = []
+
+        row = {
+            "user_email": email,
+            "subject_name": payload.subject_name,
+            "study_name": payload.study_name or payload.subject_name,
+            "ocr_text": ocr_text,
+            "answers": answers,
+            "user_answers": payload.user_answers or [],
+        }
+        if payload.quiz is not None:
+            row["quiz_html"] = {"raw": payload.quiz} if isinstance(payload.quiz, str) else payload.quiz
+
+        supabase.table("ocr_data").insert(row).execute()
+        return {"status": "success", "message": "저장되었습니다."}
+    except Exception as e:
+        print(f"save-test 오류: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 # 복습 시 퀴즈 데이터 JSON으로 가져오기 (앱에서 ScaffoldingPayload 형태로 사용)
