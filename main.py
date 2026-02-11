@@ -1,23 +1,32 @@
 # /, /home, /index
 
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from fastapi import FastAPI, Request
 from typing import Optional
-import uvicorn
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from app import reports_app, ocr_app, study_app, user_app, notification_app, reward_app, weekly_app
-from app.auth import naver_login_app, kakao_login_app
-from app.firebase_app import app as firebase_app
-from app.reward_app import check_attendance_and_reward
-
 
 import jwt
+import uvicorn
+from apscheduler.schedulers.background import BackgroundScheduler
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from app import (
+    notification_app,
+    ocr_app,
+    reports_app,
+    reward_app,
+    study_app,
+    user_app,
+    weekly_app,
+)
+from app.auth import kakao_login_app, naver_login_app
+from app.firebase_app import app as firebase_app
+from app.reward_app import check_attendance_and_reward
+from service.notification_service import check_and_send_reminders
+
+load_dotenv()
 
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
@@ -47,6 +56,31 @@ app.add_middleware(
 )
 
 
+# APScheduler: 복습 알림 (DB 기반) 주기 실행
+scheduler = BackgroundScheduler(timezone="Asia/Seoul")
+
+
+@app.on_event("startup")
+def start_scheduler():
+    """
+    서버 시작 시 APScheduler 를 구동하고,
+    Celery + Redis 대신 DB 기반 알림 체크 함수를 매 분 실행한다.
+    """
+    scheduler.add_job(
+        check_and_send_reminders,
+        "cron",
+        minute="*",
+        id="check_and_send_reminders",
+        replace_existing=True,
+    )
+    scheduler.start()
+
+
+
+@app.get("/")
+def root():
+    return {"status": "running"}
+
 
 
 
@@ -65,38 +99,6 @@ async def get_config():
             (os.getenv("API_BASE_URL") or "http://127.0.0.1:8000") + "/auth/naver/mobile",
         ),
     }
-
-"""
-
-@app.get("/index", response_class=HTMLResponse)
-async def index_page(user_email: str = Cookie(None)):
-    # 출석 체크 리워드 
-
-    is_new_reward = False
-    total_points = 0
-
-    if user_email:
-        # 여기서 두 개의 값을 받습니다.
-        is_new_reward, total_points = await check_attendance_and_reward(user_email)
-
-    
-    with open("templates/index.html", "r", encoding="utf-8") as f:
-        return f.read()
-
-    if is_new_reward:
-        # 간단한 자바스크립트 삽입 예시
-        content = content.replace("</body>", f"<script>alert('오늘의 출석 보상 1P가 지급되었습니다! (총 {total_points}P)');</script></body>")
-    return content
-
-@app.get("/home", response_class=HTMLResponse)
-async def index_page(): 
-
-    
-    
-    with open("templates/home.html", "r", encoding="utf-8") as f:
-        return f.read()
-
-        """
 
 if __name__ == "__main__":
     port = 8000

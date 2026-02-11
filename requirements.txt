@@ -1,7 +1,10 @@
-# 웹 서버
+# 서버
 fastapi
 uvicorn
 python-multipart
+gunicorn
+apscheduler
+requests
 
 # JWT 인증 (security_app, user_app, main 등)
 PyJWT
@@ -16,7 +19,6 @@ flask-cors
 # AI 및 클라우드
 openai
 python-dotenv
-requests
 
 # PDF 및 이미지
 pdf2image
@@ -30,9 +32,6 @@ supabase
 # Firebase
 firebase-admin
 
-# Celery + Redis (알림 스케줄)
-celery[redis]
-redis
 
 # GCS (utils/file_handler.py)
 google-cloud-storage
