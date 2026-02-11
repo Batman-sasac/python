@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from core.database import supabase
 import json
 import psycopg2
@@ -15,15 +15,19 @@ from app.security_app import get_current_user
 
 app = APIRouter(prefix="/study", tags=["study"])
 
-# 퀴즈 제출 모델
+# 퀴즈 제출 모델 (프론트 GradeStudyRequest와 맞춤)
 class QuizSubmitRequest(BaseModel):
-    quiz_id: int                # 퀴즈 번호 
-    user_answers: List[str]          # 유저 답변 리스트
-    correct_answers: List[str]      # 빈칸 답변 리스트
-    grade_cnt: int                  # 채점 횟수 
-    original_text: list[str]              # 원문 텍스트
-    keywords: List[str]             # 키워드 리스트
-    quiz_html: str                        # 퀴즈 메타 데이터
+    quiz_id: int
+    user_answers: List[str]
+    correct_answers: List[str]
+    grade_cnt: int
+    original_text: List[str] = []
+    keywords: List[str] = []
+    quiz_html: str = ""
+    # 프론트가 보내는 ocr_text (pages, blanks, quiz)
+    ocr_text: Optional[Dict[str, Any]] = None
+    subject_name: Optional[str] = None
+    study_name: Optional[str] = None
 
 
 
@@ -35,35 +39,45 @@ async def grade_quiz(
 ):
     print(f"채점할 유저:{email}")
     
-    # 1. 전달받은 데이터 추출 (이름을 payload로 통일)
+    # 1. 전달받은 데이터 추출
     quiz_id = payload.quiz_id
     user_ans = payload.user_answers
     correct_ans = payload.correct_answers
     grade_cnt = payload.grade_cnt
-    original_text = payload.original_text
-    keywords = payload.keywords
     quiz_html = payload.quiz_html
+
+    # ocr_data.ocr_text: 프론트에서 보내면 그대로, 없으면 original_text/keywords로 구성
+    ocr_text = payload.ocr_text
+    if ocr_text is None:
+        ocr_text = {
+            "pages": [{"original_text": "\n".join(payload.original_text), "keywords": payload.keywords}],
+            "blanks": [{"blank_index": i, "word": w, "page_index": 0} for i, w in enumerate(payload.keywords)],
+            "quiz": {"raw": payload.quiz_html or ""},
+        }
 
     if not correct_ans or not email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
 
     try:
-        # [1] OCR 데이터 저장
-        supabase.table("ocr_data").insert({
+        # [1] OCR 데이터 저장 (id는 DB 자동 생성)
+        row = {
             "user_email": email,
-            "quiz_id": quiz_id,
+            "subject_name": payload.subject_name or "학습 자료",
+            "study_name": payload.study_name or payload.subject_name or "학습 자료",
             "user_answers": user_ans,
             "answers": correct_ans,
-            "original_text": original_text,
-            "keywords": keywords,
-            "quiz_html": quiz_html
-        }).execute()
+            "ocr_text": ocr_text,
+            "quiz_html": {"raw": quiz_html} if isinstance(quiz_html, str) else quiz_html,
+        }
+        insert_res = supabase.table("ocr_data").insert(row).execute()
+        new_id = insert_res.data[0]["id"] if insert_res.data else None
 
-        # [2] 학습 로그 저장
-        supabase.table("study_logs").insert({
-            "quiz_id": quiz_id,
-            "user_email": email
-        }).execute()
+        # [2] 학습 로그 저장 (방금 삽입한 ocr_data.id 사용)
+        if new_id is not None:
+            supabase.table("study_logs").insert({
+                "quiz_id": new_id,
+                "user_email": email
+            }).execute()
 
         new_points = None
 

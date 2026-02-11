@@ -186,60 +186,7 @@ async def run_ocr_endpoint(
         return {"status": "error", "message": str(e)}
 
 
-# 스캐폴딩 학습 저장 (페이지·빈칸·사용자 답변 → ocr_data insert)
-@app.post("/ocr/save-test")
-async def save_test(
-    payload: QuizSaveRequest,
-    email: str = Depends(get_current_user),
-):
-    """
-    프론트 SaveTestRequest와 동일 스펙.
-    ocr_data에 subject_name, study_name, ocr_text(pages/blanks/quiz), answers, user_answers 저장.
-    """
-    try:
-        # ocr_text (jsonb): { "pages": [...], "blanks": [...], "quiz": ... }
-        pages = payload.pages
-        if not pages and payload.original is not None:
-            pages = [PageItem(original_text=payload.original or "", keywords=[])]
-        elif not pages:
-            pages = []
 
-        blanks = payload.blanks or []
-        quiz_val = payload.quiz
-        if isinstance(quiz_val, str):
-            quiz_val = {"raw": quiz_val}
-        elif quiz_val is None:
-            quiz_val = {}
-
-        ocr_text = {
-            "pages": [p.model_dump() if hasattr(p, "model_dump") else p for p in pages],
-            "blanks": [b.model_dump() if hasattr(b, "model_dump") else b for b in blanks],
-            "quiz": quiz_val,
-        }
-
-        # 정답 배열: blanks 순서대로 word, 없으면 payload.answers
-        answers = payload.answers
-        if answers is None and blanks:
-            answers = [b.word if hasattr(b, "word") else b.get("word", "") for b in blanks]
-        if answers is None:
-            answers = []
-
-        row = {
-            "user_email": email,
-            "subject_name": payload.subject_name,
-            "study_name": payload.study_name or payload.subject_name,
-            "ocr_text": ocr_text,
-            "answers": answers,
-            "user_answers": payload.user_answers or [],
-        }
-        if payload.quiz is not None:
-            row["quiz_html"] = {"raw": payload.quiz} if isinstance(payload.quiz, str) else payload.quiz
-
-        supabase.table("ocr_data").insert(row).execute()
-        return {"status": "success", "message": "저장되었습니다."}
-    except Exception as e:
-        print(f"save-test 오류: {e}")
-        return {"status": "error", "message": str(e)}
 
 
 # 복습 시 퀴즈 데이터 JSON으로 가져오기 (앱에서 ScaffoldingPayload 형태로 사용)
