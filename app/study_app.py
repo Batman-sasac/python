@@ -71,6 +71,8 @@ async def grade_quiz(
         if grade_cnt > 0:
             reward_amount = grade_cnt * 2
 
+            print(f"reward_amount: {reward_amount}")
+
             supabase.table("reward_history").insert({
                 "user_email": email,
                 "reward_amount": reward_amount,
