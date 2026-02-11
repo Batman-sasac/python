@@ -1,32 +1,28 @@
-from fastapi import APIRouter, Body, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Form
 from core.database import supabase
 from app.security_app import get_current_user
 
 app = APIRouter()
 
 
-class UpdateNotificationRequest(BaseModel):
-    is_notify: bool
-    remind_time: str  # "07:30" 형식
-
-
-# 복습 알림 설정 수정
+# 복습 알림 설정 수정 (프론트 FormData: is_notify, remind_time)
 @app.post("/notification-push/update")
 async def update_notification(
-    payload: UpdateNotificationRequest,
     email: str = Depends(get_current_user),
+    is_notify: str = Form(...),   # "true" / "false"
+    remind_time: str = Form(...),  # "07:30" 형식
 ):
     try:
+        is_on = is_notify.lower() in ("true", "1", "yes")
         supabase.table("users") \
             .update({
-                "is_notify": payload.is_notify,
-                "remind_time": payload.remind_time,
+                "is_notify": is_on,
+                "remind_time": remind_time,
             }) \
             .eq("email", email) \
             .execute()
 
-        print(f"✅ 알림 설정 완료: {email} -> {payload.remind_time}")
+        print(f"✅ 알림 설정 완료: {email} -> {remind_time}")
         return {"status": "success", "message": "알림 설정이 저장되었습니다."}
 
     except Exception as e:
