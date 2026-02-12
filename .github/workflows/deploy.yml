@@ -1,0 +1,44 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main   # main 브랜치에 push 하면 자동 실행
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+
+      - name: 🔐 Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
+
+      - name: 🚀 Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+        run: |
+          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
+            set -e
+
+            echo "📂 프로젝트 폴더 이동"
+            cd $PROJECT_PATH
+
+            echo "📥 최신 코드 pull"
+            git pull origin main
+
+            echo "🐳 도커 빌드"
+            docker-compose build
+
+            echo "🔄 컨테이너 재시작"
+            docker-compose down
+            docker-compose up -d
+
+            echo "✅ 배포 완료"
+          EOF
