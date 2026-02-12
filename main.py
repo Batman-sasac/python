@@ -24,7 +24,7 @@ from app import (
 from app.auth import kakao_login_app, naver_login_app
 from app.firebase_app import app as firebase_app
 from app.reward_app import check_attendance_and_reward
-from service.notification_service import check_and_send_reminders
+from service.notification_service import check_and_send_reminders, is_notification_simulation
 
 load_dotenv()
 
@@ -71,7 +71,9 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-    print("⏰ 알림 스케줄러 시작 (매 분 0초에 복습 알림 체크)")
+    mode = "🧪 시뮬레이션 (FCM/DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
+    print(f"⏰ 알림 스케줄러 시작 — 매 분 복습 알림 체크 ({mode})")
+   
 
 
 
