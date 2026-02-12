@@ -56,16 +56,13 @@ app.add_middleware(
 )
 
 
-# APScheduler: 복습 알림 (DB 기반) 주기 실행
+# APScheduler: 1분마다 DB 확인 후 FCM 복습 알림 발송 (발송 후 sent 처리로 중복 방지)
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
 @app.on_event("startup")
 def start_scheduler():
-    """
-    서버 시작 시 APScheduler 를 구동하고,
-    Celery + Redis 대신 DB 기반 알림 체크 함수를 매 분 실행한다.
-    """
+    """1분마다 DB에서 알림 대상 조회 → Firebase Admin JSON으로 FCM 발송 → sent 처리."""
     scheduler.add_job(
         check_and_send_reminders,
         "cron",
@@ -74,6 +71,7 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
+    print("⏰ 알림 스케줄러 시작 (매 분 0초에 복습 알림 체크)")
 
 
 

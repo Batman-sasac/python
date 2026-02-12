@@ -126,7 +126,7 @@ async def get_user_stats(email: str = Depends(get_current_user)):
             "data": {
                 "total_learning_count": total_learning_count, # 총 학습 횟수
                 "consecutive_days": consecutive_days, # 연속 학습일
-                "monthly_goal": monthly_goal, # 한달 목표
+                "monthly_goal": monthly_goal # 한달 목표,
             }
         }
     except Exception as e:
@@ -135,4 +135,30 @@ async def get_user_stats(email: str = Depends(get_current_user)):
 
 
     
+@app.get("/home/stats")
+async def get_home_stats(email: str = Depends(get_current_user)):
+    """현재 포인트, 한달 목표 반환"""
+    try:
+        user_res = (
+            supabase.table("users")
+            .select("points", "monthly_goal") \
+            .eq("email", email) \
+            .single() \
+            .execute()
+
+        )
+
+        points = user_res.data.get("points")
+        monthly_goal = user_res.data.get("monthly_goal")
+
+        return {
+            "status": "success",
+            "data": {
+                "points": points,
+                "monthly_goal": monthly_goal,
+            }
+        }
+    except Exception as e:
+        print(f"홈 통계 조회 오류: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
