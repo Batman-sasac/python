@@ -16,3 +16,7 @@ build/
 
 *.pyc
 __pycache__/\n*.pyc
+
+
+__pycache__/
+*.pyc
