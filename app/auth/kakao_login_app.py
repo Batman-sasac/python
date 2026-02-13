@@ -91,7 +91,7 @@ async def _kakao_callback_impl(code: str):
     
     print(f"[카카오 로그인] code 수신: {code[:20]}...")
 
-    client_id = os.getenv("KAKAO_NATIVE_APP_KEY")
+    client_id = os.getenv("KAKAO_REST_API_KEY")
     redirect_uri = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:8000/auth/kakao/mobile")
     client_secret = os.getenv("KAKAO_CLIENT_SECRET")
 
