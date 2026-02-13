@@ -3,7 +3,7 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main   # main 브랜치에 push 하면 자동 실행
+      - main
 
 jobs:
   deploy:
@@ -20,15 +20,54 @@ jobs:
 
       - name: 🚀 Deploy to EC2
         env:
+          # SSH 접속 정보
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+          
+          # 카카오 관련
+          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_REDIRECT_URI: ${{ secrets.KAKAO_REDIRECT_URI }}
+          
+          # 네이버 관련
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          NAVER_REDIRECT_URI: ${{ secrets.NAVER_REDIRECT_URI }}
+          
+          # 기타 서비스 및 DB
+          CLOVA_OCR_SECRET: ${{ secrets.CLOVA_OCR_SECRET }}
+          CLOVA_OCR_URL: ${{ secrets.CLOVA_OCR_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
         run: |
           ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
             set -e
 
             echo "📂 프로젝트 폴더 이동"
             cd $PROJECT_PATH
+
+            echo "🔑 .env 파일 생성 및 키 업데이트"
+            # 첫 번째 줄은 > 를 사용해 파일을 새로 만들고, 이후는 >> 로 내용을 추가합니다.
+            echo "KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY" > .env
+            echo "KAKAO_REST_API_KEY=$KAKAO_REST_API_KEY" >> .env
+            echo "KAKAO_CLIENT_SECRET=$KAKAO_CLIENT_SECRET" >> .env
+            echo "KAKAO_REDIRECT_URI=$KAKAO_REDIRECT_URI" >> .env
+            echo "NAVER_CLIENT_ID=$NAVER_CLIENT_ID" >> .env
+            echo "NAVER_CLIENT_SECRET=$NAVER_CLIENT_SECRET" >> .env
+            echo "NAVER_REDIRECT_URI=$NAVER_REDIRECT_URI" >> .env
+            echo "CLOVA_OCR_SECRET=$CLOVA_OCR_SECRET" >> .env
+            echo "CLOVA_OCR_URL=$CLOVA_OCR_URL" >> .env
+            echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
+            echo "SUPABASE_URL=$SUPABASE_URL" >> .env
+            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+            echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" >> .env
+            # JSON 형태일 수 있는 Firebase는 따옴표로 감싸서 넣습니다.
+            echo "FIREBASE_CREDENTIALS='$FIREBASE_CREDENTIALS'" >> .env
 
             echo "📥 최신 코드 pull"
             git pull origin main
@@ -40,5 +79,5 @@ jobs:
             docker-compose down
             docker-compose up -d
 
-            echo "✅ 배포 완료"
+            echo "✅ 모든 환경변수가 반영되어 배포가 완료되었습니다!"
           EOF
