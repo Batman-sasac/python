@@ -42,7 +42,7 @@ jobs:
             set -e
 
             # 💡 도커 API 버전 호환성 문제 해결을 위한 환경변수 설정
-            export DOCKER_API_VERSION=1.43
+            export DOCKER_API_VERSION=1.44
 
             echo "📂 프로젝트 폴더 이동"
             cd $PROJECT_PATH
