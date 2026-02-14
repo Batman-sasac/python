@@ -107,7 +107,7 @@ email: str = Depends(get_current_user)
     except Exception as e:
         return {"error": str(e)}
 
-# 3. 학습 통계 비교 (이번 달 vs 지난 달)
+# 3. 학습 통계 비교 이번 달 vs 목표 횟수
 @app.get("/learning-stats")
 async def get_learning_stats(
 email: str = Depends(get_current_user)
@@ -115,7 +115,6 @@ email: str = Depends(get_current_user)
     
     today = date.today()
     this_month_start = today.replace(day=1).isoformat()
-    last_month_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1).isoformat()
 
     try:
         # 1. 이번 달 기록 조회
@@ -125,13 +124,6 @@ email: str = Depends(get_current_user)
             .gte("completed_at", this_month_start).execute()
         this_month_count = this_res.count
 
-        # 2. 지난 달 기록 조회
-        last_res = supabase.table("study_logs") \
-            .select("id", count="exact") \
-            .eq("user_email", email) \
-            .gte("completed_at", last_month_start) \
-            .lt("completed_at", this_month_start).execute()
-        last_month_count = last_res.count
 
         # 3. 목표 횟수 조회
         user_res = supabase.table("users").select("target_count").eq("email", email).single().execute()
@@ -140,12 +132,10 @@ email: str = Depends(get_current_user)
         return {
             "status": "success",
             "compare": {
-                "last_month_name": f"{datetime.fromisoformat(last_month_start).month}월",
-                "last_month_count": last_month_count,
                 "this_month_name": f"{today.month}월",
                 "this_month_count": this_month_count,
                 "target_count": target_count,
-                "diff": this_month_count - last_month_count
+                "diff": target_count - this_month_count
             }
         }
     except Exception as e:
