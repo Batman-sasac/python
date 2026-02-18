@@ -56,23 +56,23 @@ app.add_middleware(
 )
 
 
-# APScheduler: 1분마다 DB 확인 후 FCM 복습 알림 발송 (발송 후 sent 처리로 중복 방지)
+# APScheduler: 5분마다 DB 확인 후 FCM 복습 알림 발송 (발송 후 sent 처리로 중복 방지)
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
 @app.on_event("startup")
 def start_scheduler():
-    """1분마다 DB에서 알림 대상 조회 → Firebase Admin JSON으로 FCM 발송 → sent 처리."""
+    """5분마다 DB에서 알림 대상 조회 → Firebase Admin JSON으로 FCM 발송 → sent 처리."""
     scheduler.add_job(
         check_and_send_reminders,
         "cron",
-        minute="*",
+        minute="*/5",
         id="check_and_send_reminders",
         replace_existing=True,
     )
     scheduler.start()
     mode = "🧪 시뮬레이션 (FCM/DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
-    print(f"⏰ 알림 스케줄러 시작 — 매 분 복습 알림 체크 ({mode})")
+    print(f"⏰ 알림 스케줄러 시작 — 5분마다 복습 알림 체크 ({mode})")
    
 
 

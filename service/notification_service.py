@@ -1,9 +1,12 @@
 """
-복습 알림: APScheduler로 1분마다 DB 확인 후 FCM 발송.
-- Firebase Admin JSON(서비스 계정)으로 푸시 발송.
+복습 알림: APScheduler로 5분마다 DB 확인 후 FCM/Expo 푸시 발송.
+- Firebase Admin JSON(서비스 계정)으로 FCM 발송 (Android).
+- iOS/iPad: getDevicePushTokenAsync가 APNs 토큰을 반환하므로 Firebase와 호환되지 않음.
+  → getExpoPushTokenAsync 사용 시 ExponentPushToken → Expo Push API로 발송.
 - 발송 후 users.remind_sent_at 갱신(sent 처리)으로 같은 날 중복 발송 방지.
 - DB remind_time 컬럼이 PostgreSQL time 타입이어도 정규화 후 비교.
 """
+import json
 import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -11,8 +14,11 @@ import os
 
 import firebase_admin
 from firebase_admin import credentials, messaging
+import requests
 
 from core.database import supabase
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 
 def is_notification_simulation() -> bool:
@@ -39,8 +45,46 @@ def init_firebase():
         print("🔥 Firebase Admin SDK 초기화 완료 (서비스 계정 JSON)")
 
 
-def send_fcm_notification(token: str, title: str, body: str) -> bool:
-    """FCM 푸시 알림 발송. 성공 시 True. 시뮬레이션 모드면 실제 전송 없이 True 반환."""
+def _is_expo_push_token(token: str) -> bool:
+    """ExponentPushToken 형식이면 True. iOS/iPad용 Expo 푸시에 사용."""
+    return bool(token and token.strip().startswith("ExponentPushToken["))
+
+
+def send_expo_notification(token: str, title: str, body: str) -> bool:
+    """
+    Expo Push API로 푸시 발송. iOS/iPad에서 ExponentPushToken 사용 시 필요.
+    Firebase는 APNs 토큰을 받을 수 없어 iOS 기기에는 Expo API를 사용해야 함.
+    """
+    if is_notification_simulation():
+        print(f"🧪 [시뮬레이션] Expo 푸시 발송 스킵 — token={token[:30]}... title={title!r}")
+        return True
+    try:
+        payload = {"to": token, "title": title, "body": body, "sound": "default"}
+        resp = requests.post(
+            EXPO_PUSH_URL,
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("data"):
+            ticket = data["data"][0] if isinstance(data["data"], list) else data["data"]
+            if ticket.get("status") == "error":
+                msg = ticket.get("message", "unknown")
+                print(f"❌ Expo 푸시 실패 (토큰): {msg}")
+                return False
+        return True
+    except requests.RequestException as e:
+        print(f"❌ Expo 푸시 전송 실패: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Expo 푸시 예외: {e}")
+        return False
+
+
+def _send_fcm_notification(token: str, title: str, body: str) -> bool:
+    """FCM 푸시 알림 발송 (Android FCM 토큰 전용). 성공 시 True."""
     if is_notification_simulation():
         print(f"🧪 [시뮬레이션] FCM 발송 스킵 — token={token[:20]}... title={title!r}")
         return True
@@ -56,8 +100,30 @@ def send_fcm_notification(token: str, title: str, body: str) -> bool:
         messaging.send(message)
         return True
     except Exception as e:
-        print(f"❌ FCM 전송 실패: {e}")
+        err_msg = str(e).lower()
+        # iOS APNs 토큰을 FCM에 보내면 "invalid" 또는 "registration token" 오류 발생
+        if "invalid" in err_msg or "registration" in err_msg or "not a valid fcm" in err_msg:
+            print(
+                f"❌ FCM 전송 실패 (토큰 형식 불일치): {e} "
+                f"→ iOS/iPad는 getExpoPushTokenAsync로 ExponentPushToken을 사용하세요."
+            )
+        else:
+            print(f"❌ FCM 전송 실패: {e}")
         return False
+
+
+def send_push_notification(token: str, title: str, body: str) -> bool:
+    """
+    토큰 형식에 따라 적절한 푸시 채널로 발송.
+    - ExponentPushToken[...] → Expo Push API (iOS/iPad + Expo 토큰 사용 시)
+    - 그 외 → Firebase FCM (Android)
+    """
+    if not token or not token.strip():
+        return False
+    token = token.strip()
+    if _is_expo_push_token(token):
+        return send_expo_notification(token, title, body)
+    return _send_fcm_notification(token, title, body)
 
 
 # remind_sent_at 컬럼 존재 여부 (없으면 매 분 에러 나지 않도록 fallback)
@@ -184,7 +250,7 @@ def _filter_by_remind_time(rows: list, now_hm: str, now_hms: str, debug_log: boo
 
 def check_and_send_reminders():
     """
-    APScheduler에서 1분마다 호출.
+    APScheduler에서 5분마다 호출.
     DB에서 알림 대상 유저 조회 → FCM 발송 → 발송 후 remind_sent_at 갱신(sent 처리)으로 중복 방지.
     users 테이블에 remind_sent_at 컬럼이 없으면 sent 처리 없이 발송만 함 (에러 없이 동작).
     """
@@ -302,7 +368,7 @@ def check_and_send_reminders():
             if not token:
                 continue
 
-            ok = send_fcm_notification(
+            ok = send_push_notification(
                 token=token,
                 title="복습할 시간입니다! 📚",
                 body="오늘 공부한 내용을 잊기 전에 확인해보세요.",
