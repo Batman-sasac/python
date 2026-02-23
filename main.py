@@ -28,13 +28,12 @@ from service.notification_service import check_and_send_reminders, is_notificati
 
 load_dotenv()
 
+app = FastAPI()
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-app = FastAPI()
 app.include_router(user_app.app)
 app.include_router(naver_login_app.app)
 app.include_router(kakao_login_app.app)

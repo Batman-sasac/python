@@ -106,7 +106,7 @@ async def get_user_stats(email: str = Depends(get_current_user)):
             check -= timedelta(days=1)
             check_str = check.isoformat()
 
-        # 3. 한달 목표: users.target_count
+        # 3. 한달 목표: users.monthly_goal
         user_res = supabase.table("users") \
             .select("monthly_goal") \
             .eq("email", email) \

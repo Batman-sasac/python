@@ -94,14 +94,9 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
 async def get_estimate(file: UploadFile = File(...)):
     # 가볍게 파일 정보만 읽어서 시간 계산
     file_bytes = await file.read()
-
-    files_data = []
-    for file in files:
-        content = await file.read()
-        files_data.append({"filename": file.filename, "bytes": content})
-    
-    result_msg = service.get_estimation_message(files_data)
-    
+    filename = file.filename or "image.jpg"
+    page_count = estimate_page_count(file_bytes, filename)
+    result_msg = f"약 {page_count}페이지 분량" if page_count else "1페이지 미만"
     return {"estimated_time": result_msg}
 
 def _crop_image_to_region(file_bytes: bytes, filename: str, px: int, py: int, pw: int, ph: int) -> bytes:

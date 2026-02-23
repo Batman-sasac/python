@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from app.security_app import get_current_user
 
 app = APIRouter(prefix="/study", tags=["study"])
+templates = Jinja2Templates(directory="templates")
 
 # 퀴즈 제출 모델 (프론트 GradeStudyRequest와 맞춤)
 class QuizSubmitRequest(BaseModel):
@@ -123,9 +124,10 @@ async def grade_quiz(
 # 복습화면
 @app.get("/review_study/{quiz_id}", response_class=HTMLResponse)
 async def review_page(
+    request: Request,
     quiz_id: int,
     email: str = Depends(get_current_user)
-    ):
+):
 
 
     

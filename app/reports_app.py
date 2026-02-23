@@ -21,7 +21,7 @@ class ReportCreateRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=2000, description="신고 내용")
 
 
-@app.post("/summited-report")
+@app.post("/submitted-report")
 async def submit_report(
     data: ReportCreateRequest,
     reporter_email: str = Depends(get_current_user),
@@ -32,9 +32,9 @@ async def submit_report(
     """
     try:
         row = {
-            "rp_email": reporter_email,
+            "reporter_email": reporter_email,
             "report_type": data.report_type,
-            "rp_content": data.content.strip(),
+            "content": data.content.strip(),
             "status": "pending",
             "created_at": datetime.utcnow().isoformat(),
         }

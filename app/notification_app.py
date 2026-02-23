@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Form, HTTPException
 from core.database import supabase
 from app.security_app import get_current_user
-from service.notification_service import send_fcm_notification
+from service.notification_service import send_push_notification
 
 app = APIRouter()
 
@@ -75,7 +75,7 @@ async def send_test_notification(email: str = Depends(get_current_user)):
                 detail="FCM 토큰이 없습니다. 앱에서 로그인한 뒤 알림 권한을 허용해주세요.",
             )
         token = res.data["fcm_token"]
-        ok = send_fcm_notification(
+        ok = send_push_notification(
             token=token,
             title="테스트 알림",
             body="메시지 전달 확인용 — 이 알림이 보이면 푸시가 정상 동작합니다.",
