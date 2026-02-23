@@ -87,20 +87,17 @@ def root():
 @app.get("/config")
 async def get_config():
     """프론트엔드 OAuth 설정 (환경변수에서 로드)"""
+
+    base_url = os.getenv("API_BASE_URL", "http://54.206.80.239:8000")
+
     return {
         "kakao_rest_api_key": os.getenv("KAKAO_REST_API_KEY"),
-        "kakao_redirect_uri": os.getenv(
-            "KAKAO_REDIRECT_URI",
-            (os.getenv("API_BASE_URL") or "http://localhost:8000") + "/auth/kakao/mobile",
-        ),
+        "kakao_redirect_uri": os.getenv("KAKAO_REDIRECT_URI", f"{base_url}/auth/kakao/mobile"),
         "naver_client_id": os.getenv("NAVER_CLIENT_ID"),
-        "naver_redirect_uri": os.getenv(
-            "NAVER_REDIRECT_URI",
-            (os.getenv("API_BASE_URL") or "http://127.0.0.1:8000") + "/auth/naver/mobile",
-        ),
+        "naver_redirect_uri": os.getenv("NAVER_REDIRECT_URI", f"{base_url}/auth/naver/mobile"),
     }
 
 if __name__ == "__main__":
     port = 8000
-    print(f"\n🚀 가동 중:http://192.168.219.110:{port}")
+    print(f"\n🚀 서버 가동 중 - Port: {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
