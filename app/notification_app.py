@@ -1,31 +1,51 @@
 from fastapi import APIRouter, Depends, Form, HTTPException
 from core.database import supabase
 from app.security_app import get_current_user
-from service.notification_service import send_push_notification
+from service.notification_service import send_push_notification, _is_expo_push_token, _token_log_snippet
 
 app = APIRouter()
 
 
 # 복습 알림 설정 — 프론트: POST /notification-push/update, FormData is_notify("true"|"false"), remind_time("HH:MM")
+# 보내지 않은 필드는 기존 DB 값 유지 (선택적 필드만 반영)
 @app.post("/notification-push/update")
 async def update_notification(
     email: str = Depends(get_current_user),
-    is_notify: str = Form(...),   # "true" / "false"
-    remind_time: str = Form(...),  # "07:30" 형식
+    is_notify: str | None = Form(None),   # "true" / "false" — 없으면 기존 값 유지
+    remind_time: str | None = Form(None),  # "07:30" 형식 — 없거나 빈 문자열이면 기존 값 유지
 ):
     try:
-        is_on = is_notify.lower() in ("true", "1", "yes")
+        # 기존 값 조회 (보내지 않은 필드는 유지하기 위함)
+        res = supabase.table("users") \
+            .select("is_notify, remind_time") \
+            .eq("email", email) \
+            .single() \
+            .execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다.")
+        current = res.data
+
+        # 보낸 필드만 반영, 없으면 기존 값 유지
+        payload = {}
+        if is_notify is not None:
+            payload["is_notify"] = is_notify.strip().lower() in ("true", "1", "yes")
+        else:
+            payload["is_notify"] = current.get("is_notify", False)
+        if remind_time is not None and remind_time.strip():
+            payload["remind_time"] = remind_time.strip()
+        else:
+            payload["remind_time"] = current.get("remind_time") or "07:00"
+
         supabase.table("users") \
-            .update({
-                "is_notify": is_on,
-                "remind_time": remind_time,
-            }) \
+            .update(payload) \
             .eq("email", email) \
             .execute()
 
-        print(f"✅ 알림 설정 완료: {email} -> {remind_time}")
+        print(f"✅ 알림 설정 완료: {email} -> is_notify={payload['is_notify']}, remind_time={payload['remind_time']}")
         return {"status": "success", "message": "알림 설정이 저장되었습니다."}
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ 알림 업데이트 에러: {e}")
         return {"status": "error", "message": str(e)}
@@ -74,7 +94,9 @@ async def send_test_notification(email: str = Depends(get_current_user)):
                 status_code=400,
                 detail="FCM 토큰이 없습니다. 앱에서 로그인한 뒤 알림 권한을 허용해주세요.",
             )
-        token = res.data["fcm_token"]
+        token = (res.data["fcm_token"] or "").strip()
+        is_expo = _is_expo_push_token(token)
+        print(f"[테스트 푸시] email={email} | 토큰형식=Expo(iOS)={is_expo} | {_token_log_snippet(token)}")
         ok = send_push_notification(
             token=token,
             title="테스트 알림",
@@ -83,9 +105,18 @@ async def send_test_notification(email: str = Depends(get_current_user)):
         if ok:
             print(f"🔔 테스트 푸시 발송 완료: {email}")
             return {"status": "success", "message": "테스트 알림을 발송했습니다. 기기에서 수신 여부를 확인하세요."}
-        raise HTTPException(status_code=500, detail="FCM 발송에 실패했습니다.")
+        # 실패 시 상세 로그는 notification_service에서 이미 출력됨
+        print(f"❌ [테스트 푸시] 발송 실패: send_push_notification 반환 False | email={email} | 위 [FCM]/[Expo] 로그 참고")
+        raise HTTPException(
+            status_code=500,
+            detail="푸시 발송 실패. 서버 콘솔 로그에서 [FCM] 또는 [Expo] 블록으로 정확한 원인 확인.",
+        )
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ 테스트 푸시 에러: {e}")
+        import traceback
+        print(f"❌ [테스트 푸시] 예외: {type(e).__name__}: {e}")
+        traceback.print_exc()
         return {"status": "error", "message": str(e)}
+
+

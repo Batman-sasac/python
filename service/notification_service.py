@@ -8,6 +8,7 @@
 """
 import json
 import re
+import traceback
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
@@ -50,6 +51,13 @@ def _is_expo_push_token(token: str) -> bool:
     return bool(token and token.strip().startswith("ExponentPushToken["))
 
 
+def _token_log_snippet(token: str, max_head: int = 40, max_tail: int = 12) -> str:
+    """로그용 토큰 앞/뒤만 노출 (전체 토큰 노출 방지)."""
+    if not token or len(token) <= max_head + max_tail:
+        return "(빈 문자열)" if not token else f"len={len(token)}"
+    return f"{token[:max_head]}...{token[-max_tail:]} (len={len(token)})"
+
+
 def send_expo_notification(token: str, title: str, body: str) -> bool:
     """
     Expo Push API로 푸시 발송. iOS/iPad에서 ExponentPushToken 사용 시 필요.
@@ -72,14 +80,16 @@ def send_expo_notification(token: str, title: str, body: str) -> bool:
             ticket = data["data"][0] if isinstance(data["data"], list) else data["data"]
             if ticket.get("status") == "error":
                 msg = ticket.get("message", "unknown")
-                print(f"❌ Expo 푸시 실패 (토큰): {msg}")
+                print(f"❌ [Expo] 푸시 실패 | message={msg} | token_snippet={_token_log_snippet(token)}")
                 return False
         return True
     except requests.RequestException as e:
-        print(f"❌ Expo 푸시 전송 실패: {e}")
+        print(f"❌ [Expo] 전송 실패 | {type(e).__name__}: {e} | token_snippet={_token_log_snippet(token)}")
+        traceback.print_exc()
         return False
     except Exception as e:
-        print(f"❌ Expo 푸시 예외: {e}")
+        print(f"❌ [Expo] 예외 | {type(e).__name__}: {e} | token_snippet={_token_log_snippet(token)}")
+        traceback.print_exc()
         return False
 
 
@@ -101,14 +111,20 @@ def _send_fcm_notification(token: str, title: str, body: str) -> bool:
         return True
     except Exception as e:
         err_msg = str(e).lower()
-        # iOS APNs 토큰을 FCM에 보내면 "invalid" 또는 "registration token" 오류 발생
+        snippet = _token_log_snippet(token)
+        token_prefix = (token or "")[:60]  # 앞 60자로 형식 판별 가능
+        print("=" * 60)
+        print("❌ [FCM] 알림 전송 실패 — 정확한 로그")
+        print(f"   예외 타입: {type(e).__name__}")
+        print(f"   예외 메시지: {e}")
+        print(f"   토큰 길이: {len(token or '')} | 앞 60자: {token_prefix!r}")
+        print(f"   토큰 snippet: {snippet}")
+        print(f"   ExponentPushToken 형식인가? {_is_expo_push_token(token)} (True면 Expo로 보내야 함)")
         if "invalid" in err_msg or "registration" in err_msg or "not a valid fcm" in err_msg:
-            print(
-                f"❌ FCM 전송 실패 (토큰 형식 불일치): {e} "
-                f"→ iOS/iPad는 getExpoPushTokenAsync로 ExponentPushToken을 사용하세요."
-            )
-        else:
-            print(f"❌ FCM 전송 실패: {e}")
+            print("   → 원인: FCM은 Android FCM 토큰만 허용. iOS는 getExpoPushTokenAsync()로 ExponentPushToken 사용 필요.")
+        print("   --- traceback ---")
+        traceback.print_exc()
+        print("=" * 60)
         return False
 
 
@@ -119,10 +135,16 @@ def send_push_notification(token: str, title: str, body: str) -> bool:
     - 그 외 → Firebase FCM (Android)
     """
     if not token or not token.strip():
+        print("[Push] ❌ 발송 스킵: 토큰이 비어 있음")
         return False
     token = token.strip()
-    if _is_expo_push_token(token):
+    is_expo = _is_expo_push_token(token)
+    snippet = _token_log_snippet(token)
+    print(f"[Push] 토큰 형식 판별: is_expo={is_expo} | snippet={snippet}")
+    if is_expo:
+        print("[Push] → Expo Push API로 발송 시도")
         return send_expo_notification(token, title, body)
+    print("[Push] → FCM으로 발송 시도 (Android 토큰 가정)")
     return _send_fcm_notification(token, title, body)
 
 
@@ -385,6 +407,8 @@ def check_and_send_reminders():
                         print(f"🔔 알림 발송 완료: {email}")
                 else:
                     print(f"🔔 알림 발송 완료: {email}")
+            else:
+                print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [FCM]/[Expo] 블록에서 정확한 오류 로그 확인")
 
     except Exception as e:
         if is_notification_simulation():
