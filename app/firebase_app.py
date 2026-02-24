@@ -8,13 +8,12 @@ app = APIRouter(prefix="/firebase", tags=["Firebase"])
 class UpdateFcmTokenRequest(BaseModel):
     fcm_token: str
 
-#users DB fcm_token 저장
+# FCM 토큰 저장 — 프론트: POST /firebase/user/update-fcm-token, JSON { "fcm_token": string }
 @app.post("/user/update-fcm-token")
 async def update_fcm_token(
     payload: UpdateFcmTokenRequest,
     email: str = Depends(get_current_user),
 ):
-    
     fcm_token = payload.fcm_token
     
     if not fcm_token:

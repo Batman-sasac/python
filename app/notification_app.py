@@ -6,7 +6,7 @@ from service.notification_service import send_push_notification
 app = APIRouter()
 
 
-# 복습 알림 설정 수정 (프론트 FormData: is_notify, remind_time)
+# 복습 알림 설정 — 프론트: POST /notification-push/update, FormData is_notify("true"|"false"), remind_time("HH:MM")
 @app.post("/notification-push/update")
 async def update_notification(
     email: str = Depends(get_current_user),

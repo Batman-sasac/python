@@ -15,11 +15,12 @@ from app.security_app import get_current_user
 app = APIRouter(prefix="/cycle", tags=["Weekly"])
 
 
-# 1. 학습 목표 설정 (UPDATE)
+# 1. 학습 목표 설정 (UPDATE) — 프론트: POST Form cycle_count (필수). token은 선택(Bearer만 써도 됨)
 @app.post("/set-goal")
-async def set_study_goal(token: str = Form(...),
-email: str = Depends(get_current_user),
-cycle_count: int = Form(...)   # 학습 목표 횟수
+async def set_study_goal(
+    email: str = Depends(get_current_user),
+    cycle_count: int = Form(...),  # 학습 목표 횟수 (필수)
+    token: Optional[str] = Form(None),  # 호환용, 없으면 Authorization Bearer 사용
 ):
 
     print(f"학습 목표 횟수: {cycle_count}")

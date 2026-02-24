@@ -16,7 +16,7 @@ from app.security_app import get_current_user
 app = APIRouter(prefix="/study", tags=["study"])
 templates = Jinja2Templates(directory="templates")
 
-# 퀴즈 제출 모델 (프론트 GradeStudyRequest와 맞춤)
+# 퀴즈 제출 모델 — 프론트 GradeStudyRequest와 동일 (JSON body)
 class QuizSubmitRequest(BaseModel):
     quiz_id: int
     user_answers: List[str]
@@ -25,14 +25,13 @@ class QuizSubmitRequest(BaseModel):
     original_text: List[str] = []
     keywords: List[str] = []
     quiz_html: str = ""
-    # 프론트가 보내는 ocr_text (pages, blanks, quiz)
-    ocr_text: Optional[Dict[str, Any]] = None
+    ocr_text: Optional[Dict[str, Any]] = None  # { pages, blanks, quiz } 또는 생략
     subject_name: Optional[str] = None
     study_name: Optional[str] = None
 
 
 
-# 채점 버튼 클릭 시 리워드 제공 &ocr_data 저장
+# 채점 — 프론트: POST /study/grade, JSON body (QuizSubmitRequest) → { status, score, reward_given, new_points }
 @app.post("/grade")
 async def grade_quiz(
     email: str = Depends(get_current_user),
@@ -172,7 +171,7 @@ async def review_page(
         return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
 
 
-# 복습 완료 시 리워드 제공 & 사용자 답변 저장
+# 복습 완료 — 프론트: POST /study/review-study, JSON { quiz_id, user_answers[] } → { status, new_points }
 @app.post("/review-study")
 async def review_study_reward(request: Request, email: str = Depends(get_current_user)):
     print(f"복습 완료 시 리워드 제공 유저:{email}")
@@ -204,7 +203,13 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
             .eq("id", quiz_id) \
             .eq("user_email", email) \
             .execute()
-            
+
+        # study_logs 테이블에 로그 저장
+        supabase.table("study_logs").insert({
+            "user_email": email,
+            "quiz_id": quiz_id,
+            "completed_at": datetime.now().isoformat()
+        }).execute()
 
         # 유저 포인트 합산 업데이트
         user_res = supabase.table("users").select("points").eq("email", email).single().execute()

@@ -3,10 +3,12 @@ from core.database import supabase
 import json
 
 from app.security_app import get_current_user
-    
+from app.hint.hint_utils import get_chosung
 
 app = APIRouter(tags=["Study"])
 
+
+# 프론트: GET /study/hint/{quiz_id} → { status, quiz_id, data: [{ h1, h2, h3 }] }
 @app.get("/study/hint/{quiz_id}")
 async def get_quiz_hint( quiz_id: int,
     email: str = Depends(get_current_user)
