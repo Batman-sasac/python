@@ -30,24 +30,33 @@ async def update_notification(
             payload["is_notify"] = is_notify.strip().lower() in ("true", "1", "yes")
         else:
             payload["is_notify"] = current.get("is_notify", False)
+        reset_sent = False
         if remind_time is not None and remind_time.strip():
             new_time = remind_time.strip()
             payload["remind_time"] = new_time
-            # 시간을 변경하면 오늘 알림 보냄 기록 리셋 → 새 시간에 오늘도 발송 가능
             current_raw = str(current.get("remind_time") or "").strip()
             current_hm = (current_raw + ":00")[:5] if current_raw else ""
             new_hm = (new_time + ":00")[:5]
+            if len(new_hm) >= 4 and new_hm[0].isdigit():
+                if len(new_hm) == 4:
+                    new_hm = "0" + new_hm
+                if current_hm and len(current_hm) == 4:
+                    current_hm = "0" + current_hm
             if current_hm != new_hm:
-                payload["remind_sent_at"] = None
+                reset_sent = True
         else:
             payload["remind_time"] = current.get("remind_time") or "07:00"
 
-        supabase.table("users") \
-            .update(payload) \
-            .eq("email", email) \
-            .execute()
+        supabase.table("users").update(payload).eq("email", email).execute()
 
-        print(f"✅ 알림 설정 완료: {email} -> is_notify={payload['is_notify']}, remind_time={payload['remind_time']}" + (" (발송 기록 리셋)" if payload.get("remind_sent_at") is None else ""))
+        if reset_sent:
+            try:
+                supabase.table("users").update({"remind_sent_at": None}).eq("email", email).execute()
+                print(f"✅ 알림 설정 완료: {email} -> remind_time={payload['remind_time']} (발송 기록 리셋)")
+            except Exception:
+                print(f"✅ 알림 설정 완료: {email} -> remind_time={payload['remind_time']} (remind_sent_at 컬럼 없음 — 리셋 스킵)")
+        else:
+            print(f"✅ 알림 설정 완료: {email} -> is_notify={payload['is_notify']}, remind_time={payload['remind_time']}")
         return {"status": "success", "message": "알림 설정이 저장되었습니다."}
 
     except HTTPException:

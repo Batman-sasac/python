@@ -52,7 +52,10 @@ def send_expo_notification(token: str, title: str, body: str) -> bool:
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json() if resp.content else {}
+        except Exception:
+            data = {}
         if data.get("data"):
             ticket = data["data"][0] if isinstance(data["data"], list) else data["data"]
             if ticket.get("status") == "error":
@@ -263,22 +266,35 @@ def check_and_send_reminders():
         select_cols = "email, fcm_token, remind_time"
         select_cols_with_sent = "email, fcm_token, remind_sent_at, remind_time"
         if simulate:
-            # 시뮬레이션: 조건 완화. remind_time만 not null로 조회 후 Python에서 is_notify 필터
             base_filter = supabase.table("users").select(select_cols).not_.is_("remind_time", "null")
             response = base_filter.execute()
             rows_raw = response.data or []
             rows = [u for u in rows_raw if _is_notify_on(u.get("is_notify"))]
             if not rows and rows_raw:
-                print(f"[알림] is_notify=True 필터 후 0명 (전체 {len(rows_raw)}명) → is_notify 무시하고 remind_time만 사용")
                 rows = rows_raw
             use_sent = False
         else:
-            base_filter = supabase.table("users").select(
-                select_cols if _remind_sent_at_available is False else select_cols_with_sent
-            ).eq("is_notify", True)
-            response = base_filter.execute()
-            rows = response.data or []
-            use_sent = _remind_sent_at_available is not False
+            if _remind_sent_at_available is False:
+                base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
+                response = base_filter.execute()
+                rows = response.data or []
+                use_sent = False
+            else:
+                try:
+                    base_filter = supabase.table("users").select(select_cols_with_sent).eq("is_notify", True)
+                    response = base_filter.execute()
+                    rows = response.data or []
+                    use_sent = True
+                except Exception as e:
+                    if _remind_sent_at_available is None and _is_remind_sent_at_missing_error(e):
+                        _remind_sent_at_available = False
+                        print("⚠️ users.remind_sent_at 컬럼 없음 — 이번 회차는 발송 기록 없이 진행.")
+                        base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
+                        response = base_filter.execute()
+                        rows = response.data or []
+                        use_sent = False
+                    else:
+                        raise
 
         if not rows:
             print(f"[알림] DB 조회 0명 (remind_time 있는 유저 없음)" if simulate else f"[알림] DB 조회 0명 (is_notify=True 유저 없음)")
