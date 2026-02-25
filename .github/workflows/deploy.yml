@@ -66,11 +66,14 @@ jobs:
             echo "📥 최신 코드 pull"
             git pull origin main
 
-            echo "🐳 도커 빌드 및 재시작 (최신 명령어 사용)"
-            # docker-compose build 대신 하이픈 없는 docker compose 명령어를 권장합니다.
-            docker compose build
+            echo "🧹 서버 용량 확보 (미사용 도커 리소스 삭제)"
+            # 사용하지 않는 컨테이너, 네트워크, 이미지, 빌드 캐시를 강제로 삭제하여 용량 확보
+            docker system prune -af
+
+            echo "🐳 도커 빌드 및 재시작"
+            # 용량이 부족할 때는 build와 up을 동시에 하는 것이 안전할 수 있습니다.
             docker compose down
-            docker compose up -d
+            docker compose up --build -d
 
             echo "✅ 모든 환경변수가 반영되어 배포가 완료되었습니다!"
           EOF
