@@ -51,10 +51,10 @@ async def update_notification(
         return {"status": "error", "message": str(e)}
 
 
-# 유저 알림 설정·FCM 토큰 확인 (유저 확인용)
+# 유저 알림 설정·푸시 토큰 등록 여부 확인 (유저 확인용)
 @app.get("/notification-push/me")
 async def get_my_notification_status(email: str = Depends(get_current_user)):
-    """로그인한 유저의 알림 설정과 FCM 토큰 존재 여부를 반환."""
+    """로그인한 유저의 알림 설정과 푸시 토큰(Expo) 등록 여부를 반환."""
     try:
         res = supabase.table("users") \
             .select("email, is_notify, remind_time, fcm_token") \
@@ -71,7 +71,7 @@ async def get_my_notification_status(email: str = Depends(get_current_user)):
             "is_notify": row.get("is_notify", False),
             "remind_time": row.get("remind_time"),
             "fcm_token_registered": has_token,
-            "message": "FCM 토큰이 등록되어 있으면 테스트 푸시를 받을 수 있습니다." if has_token else "FCM 토큰이 없습니다. 앱에서 알림 권한 후 다시 시도하세요.",
+            "message": "푸시 토큰이 등록되어 있으면 테스트 푸시를 받을 수 있습니다." if has_token else "푸시 토큰이 없습니다. iOS 앱에서 알림 권한 후 다시 시도하세요.",
         }
     except HTTPException:
         raise
@@ -92,7 +92,7 @@ async def send_test_notification(email: str = Depends(get_current_user)):
         if not res.data or not res.data.get("fcm_token"):
             raise HTTPException(
                 status_code=400,
-                detail="FCM 토큰이 없습니다. 앱에서 로그인한 뒤 알림 권한을 허용해주세요.",
+                detail="푸시 토큰이 없습니다. iOS 앱에서 로그인한 뒤 알림 권한을 허용해주세요.",
             )
         token = (res.data["fcm_token"] or "").strip()
         is_expo = _is_expo_push_token(token)
@@ -106,10 +106,10 @@ async def send_test_notification(email: str = Depends(get_current_user)):
             print(f"🔔 테스트 푸시 발송 완료: {email}")
             return {"status": "success", "message": "테스트 알림을 발송했습니다. 기기에서 수신 여부를 확인하세요."}
         # 실패 시 상세 로그는 notification_service에서 이미 출력됨
-        print(f"❌ [테스트 푸시] 발송 실패: send_push_notification 반환 False | email={email} | 위 [FCM]/[Expo] 로그 참고")
+        print(f"❌ [테스트 푸시] 발송 실패: send_push_notification 반환 False | email={email} | 위 [Expo] 로그 참고")
         raise HTTPException(
             status_code=500,
-            detail="푸시 발송 실패. 서버 콘솔 로그에서 [FCM] 또는 [Expo] 블록으로 정확한 원인 확인.",
+            detail="푸시 발송 실패. 서버 콘솔 로그에서 [Expo] 블록으로 원인 확인.",
         )
     except HTTPException:
         raise

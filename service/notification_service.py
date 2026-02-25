@@ -1,20 +1,15 @@
 """
-복습 알림: APScheduler로 5분마다 DB 확인 후 FCM/Expo 푸시 발송.
-- Firebase Admin JSON(서비스 계정)으로 FCM 발송 (Android).
-- iOS/iPad: getDevicePushTokenAsync가 APNs 토큰을 반환하므로 Firebase와 호환되지 않음.
-  → getExpoPushTokenAsync 사용 시 ExponentPushToken → Expo Push API로 발송.
+복습 알림: APScheduler로 5분마다 DB 확인 후 Expo Push API로 푸시 발송 (iOS 전용).
+- ExponentPushToken만 사용 (expo-notifications).
 - 발송 후 users.remind_sent_at 갱신(sent 처리)으로 같은 날 중복 발송 방지.
 - DB remind_time 컬럼이 PostgreSQL time 타입이어도 정규화 후 비교.
 """
-import json
 import re
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 
-import firebase_admin
-from firebase_admin import credentials, messaging
 import requests
 
 from core.database import supabase
@@ -23,27 +18,9 @@ EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 
 def is_notification_simulation() -> bool:
-    """FCM/DB 없이 알림 로직·스케줄러만 테스트할 때 True. env: NOTIFICATION_SIMULATE=1 또는 true"""
+    """DB 갱신 없이 알림 로직·스케줄러만 테스트할 때 True. env: NOTIFICATION_SIMULATE=1 또는 true"""
     v = (os.getenv("NOTIFICATION_SIMULATE") or "").strip().lower()
     return v in ("1", "true", "yes", "on")
-
-
-# Firebase Admin JSON 경로 (.env: FIREBASE_CREDENTIALS 또는 FIREBASE_JSON_PATH)
-def _get_firebase_cred_path() -> str:
-    return (
-        os.getenv("FIREBASE_CREDENTIALS")
-        or os.getenv("FIREBASE_JSON_PATH")
-        or "secrets/firebase-adminsdk.json"
-    )
-
-
-def init_firebase():
-    """Firebase Admin SDK 초기화 (FCM 서버 키가 포함된 서비스 계정 JSON 사용)."""
-    if not firebase_admin._apps:
-        cred_path = _get_firebase_cred_path()
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        print("🔥 Firebase Admin SDK 초기화 완료 (서비스 계정 JSON)")
 
 
 def _is_expo_push_token(token: str) -> bool:
@@ -93,59 +70,19 @@ def send_expo_notification(token: str, title: str, body: str) -> bool:
         return False
 
 
-def _send_fcm_notification(token: str, title: str, body: str) -> bool:
-    """FCM 푸시 알림 발송 (Android FCM 토큰 전용). 성공 시 True."""
-    if is_notification_simulation():
-        print(f"🧪 [시뮬레이션] FCM 발송 스킵 — token={token[:20]}... title={title!r}")
-        return True
-    try:
-        init_firebase()
-        message = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
-            token=token,
-        )
-        messaging.send(message)
-        return True
-    except Exception as e:
-        err_msg = str(e).lower()
-        snippet = _token_log_snippet(token)
-        token_prefix = (token or "")[:60]  # 앞 60자로 형식 판별 가능
-        print("=" * 60)
-        print("❌ [FCM] 알림 전송 실패 — 정확한 로그")
-        print(f"   예외 타입: {type(e).__name__}")
-        print(f"   예외 메시지: {e}")
-        print(f"   토큰 길이: {len(token or '')} | 앞 60자: {token_prefix!r}")
-        print(f"   토큰 snippet: {snippet}")
-        print(f"   ExponentPushToken 형식인가? {_is_expo_push_token(token)} (True면 Expo로 보내야 함)")
-        if "invalid" in err_msg or "registration" in err_msg or "not a valid fcm" in err_msg:
-            print("   → 원인: FCM은 Android FCM 토큰만 허용. iOS는 getExpoPushTokenAsync()로 ExponentPushToken 사용 필요.")
-        print("   --- traceback ---")
-        traceback.print_exc()
-        print("=" * 60)
-        return False
-
-
 def send_push_notification(token: str, title: str, body: str) -> bool:
     """
-    토큰 형식에 따라 적절한 푸시 채널로 발송.
-    - ExponentPushToken[...] → Expo Push API (iOS/iPad + Expo 토큰 사용 시)
-    - 그 외 → Firebase FCM (Android)
+    Expo Push API로 푸시 발송 (iOS 전용, ExponentPushToken만 사용).
     """
     if not token or not token.strip():
         print("[Push] ❌ 발송 스킵: 토큰이 비어 있음")
         return False
     token = token.strip()
-    is_expo = _is_expo_push_token(token)
-    snippet = _token_log_snippet(token)
-    print(f"[Push] 토큰 형식 판별: is_expo={is_expo} | snippet={snippet}")
-    if is_expo:
-        print("[Push] → Expo Push API로 발송 시도")
-        return send_expo_notification(token, title, body)
-    print("[Push] → FCM으로 발송 시도 (Android 토큰 가정)")
-    return _send_fcm_notification(token, title, body)
+    if not _is_expo_push_token(token):
+        print(f"[Push] ❌ ExponentPushToken이 아님 — 발송 스킵 | snippet={_token_log_snippet(token)}")
+        return False
+    print(f"[Push] Expo Push API로 발송 | snippet={_token_log_snippet(token)}")
+    return send_expo_notification(token, title, body)
 
 
 # remind_sent_at 컬럼 존재 여부 (없으면 매 분 에러 나지 않도록 fallback)
@@ -291,7 +228,7 @@ def check_and_send_reminders():
 
         print(f"[알림] ========== 스케줄 실행 (KST {now} / today={today}) ==========")
         if simulate:
-            print(f"[알림] 🧪 시뮬레이션 모드 — 현재 시각 {now} (KST), {time_window}분 구간 매칭 (FCM/DB 갱신 없음)")
+            print(f"[알림] 🧪 시뮬레이션 모드 — 현재 시각 {now} (KST), {time_window}분 구간 매칭 (DB 갱신 없음)")
         else:
             print(f"[알림] 매 분 체크 중 — 현재 시각 {now} (KST)")
 
@@ -371,10 +308,10 @@ def check_and_send_reminders():
             email = u.get("email") or "-"
             token_val = u.get("fcm_token") or ""
             token_display = (f"{token_val[:12]}...{token_val[-8:]}" if len(token_val) > 24 else token_val) or "(없음)"
-            print(f"  - 대상: {email}, FCM 토큰: {token_display}")
+            print(f"  - 대상: {email}, 푸시 토큰: {token_display}")
 
         if not targets:
-            print(f"[알림] 발송 대상 0명 (remind_time={now} 매칭 없음)" + ("" if simulate else " 또는 fcm_token 없음"))
+            print(f"[알림] 발송 대상 0명 (remind_time={now} 매칭 없음)" + ("" if simulate else " 또는 푸시 토큰 없음"))
         else:
             print(f"[알림] 발송 대상 {len(targets)}명 → 발송 처리 시작")
 
@@ -385,7 +322,7 @@ def check_and_send_reminders():
                 if token:
                     print(f"🧪 [시뮬레이션] 알림 발송 (실제 미발송): {email}")
                 else:
-                    print(f"🧪 [시뮬레이션] 알림 대상이지만 FCM 토큰 없음 — 스킵: {email}")
+                    print(f"🧪 [시뮬레이션] 알림 대상이지만 푸시 토큰 없음 — 스킵: {email}")
                 continue
             if not token:
                 continue
@@ -408,7 +345,7 @@ def check_and_send_reminders():
                 else:
                     print(f"🔔 알림 발송 완료: {email}")
             else:
-                print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [FCM]/[Expo] 블록에서 정확한 오류 로그 확인")
+                print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [Expo] 로그 참고")
 
     except Exception as e:
         if is_notification_simulation():

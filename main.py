@@ -72,7 +72,7 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-    mode = "🧪 시뮬레이션 (FCM/DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
+    mode = "🧪 시뮬레이션 (DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
     print(f"⏰ 알림 스케줄러 시작 — 5분마다 복습 알림 체크 ({mode})")
    
 

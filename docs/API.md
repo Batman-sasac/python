@@ -28,11 +28,11 @@ Base URL 예: `http://localhost:8000` 또는 환경변수 `API_BASE_URL`.
 
 ---
 
-## Firebase (prefix: `/firebase`)
+## 푸시 토큰 (prefix: `/firebase` — 경로 호환 유지)
 
 | Method | Path | 설명 | Request | Response |
 |--------|------|------|---------|----------|
-| POST | `/firebase/user/update-fcm-token` | FCM 토큰 저장 | JSON: `{ "fcm_token": string }` | `{ "status", "message" }` |
+| POST | `/firebase/user/update-fcm-token` | Expo 푸시 토큰 저장 (iOS 전용) | JSON: `{ "fcm_token": "ExponentPushToken[...]" }` | `{ "status", "message" }` |
 
 ---
 
@@ -41,7 +41,7 @@ Base URL 예: `http://localhost:8000` 또는 환경변수 `API_BASE_URL`.
 | Method | Path | 설명 | Request | Response |
 |--------|------|------|---------|----------|
 | POST | `/notification-push/update` | 복습 알림 설정 | Form: `is_notify` ("true"/"false"), `remind_time` ("HH:MM") | `{ "status", "message" }` |
-| GET | `/notification-push/me` | 내 알림 설정·FCM 등록 여부 | - | `{ "status", "email", "is_notify", "remind_time", "fcm_token_registered", "message" }` |
+| GET | `/notification-push/me` | 내 알림 설정·푸시 토큰 등록 여부 | - | `{ "status", "email", "is_notify", "remind_time", "fcm_token_registered", "message" }` |
 | POST | `/notification-push/test` | 테스트 푸시 발송 | - | `{ "status", "message" }` |
 
 ---

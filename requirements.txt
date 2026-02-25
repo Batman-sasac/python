@@ -29,10 +29,6 @@ pypdf
 psycopg2-binary
 supabase
 
-# Firebase
-firebase-admin
-
-
 # GCS (utils/file_handler.py)
 google-cloud-storage
 
