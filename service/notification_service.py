@@ -1,5 +1,5 @@
 """
-복습 알림: APScheduler로 5분마다 DB 확인 후 Expo Push API로 푸시 발송 (iOS 전용).
+복습 알림: APScheduler로 매 분 DB 확인 후 Expo Push API로 푸시 발송 (iOS 전용).
 - ExponentPushToken만 사용 (expo-notifications).
 - 발송 후 users.remind_sent_at 갱신(sent 처리)으로 같은 날 중복 발송 방지.
 - DB remind_time 컬럼이 PostgreSQL time 타입이어도 정규화 후 비교.
@@ -85,6 +85,15 @@ def send_push_notification(token: str, title: str, body: str) -> bool:
     return send_expo_notification(token, title, body)
 
 
+# remind_sent_at 컬럼 없을 때 에러 방지 (없으면 발송 기록 생략)
+_remind_sent_at_available: bool | None = None
+
+
+def _is_remind_sent_at_missing_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "remind_sent_at" in msg and ("does not exist" in msg or "42703" in msg)
+
+
 def _normalize_remind_time(val: str | None) -> str:
     """
     DB remind_time을 HH:MM 형태로 통일 (KST 기준, leading zero 포함).
@@ -150,6 +159,20 @@ def _normalize_remind_time(val: str | None) -> str:
     return s
 
 
+def _sent_before_today(sent_at, today: str) -> bool:
+    """오늘 아직 안 보냈으면 True (remind_sent_at이 null이거나 오늘보다 이전이면 True)."""
+    if sent_at is None:
+        return True
+    if isinstance(sent_at, str):
+        date_part = sent_at[:10] if len(sent_at) >= 10 else sent_at
+        return date_part < today
+    if hasattr(sent_at, "date"):
+        return sent_at.date().isoformat() < today
+    if hasattr(sent_at, "isoformat"):
+        return sent_at.isoformat()[:10] < today
+    return True
+
+
 def _time_in_window(hm: str, now_hm: str, window_minutes: int = 0) -> bool:
     """hm이 now_hm과 일치하거나, window_minutes 이내면 True (시뮬레이션용). window_minutes=0이면 정확히 일치만."""
     if not hm or len(hm) < 5:
@@ -186,10 +209,11 @@ def _filter_by_remind_time(rows: list, now_hm: str, now_hms: str, debug_log: boo
 
 def check_and_send_reminders():
     """
-    APScheduler에서 5분마다 호출.
-    DB에서 알림 대상 유저 조회(is_notify=True, remind_time=현재 시각 KST) → Expo Push 발송.
-    중복 날짜 제한 없음 — 같은 날 설정한 시간에 맞출 때마다 발송 (하루 두 번 받고 싶은 경우 등).
+    APScheduler에서 매 분 호출.
+    DB에서 알림 대상 조회(is_notify=True, remind_time=현재 시각 KST) → 오늘 아직 안 보낸 유저만 Expo Push 발송.
+    사용자가 시간을 변경하면 remind_sent_at이 리셋되어 새 시간에 오늘도 발송됨.
     """
+    global _remind_sent_at_available
     # 알림 시간은 사용자(KST) 기준이므로, 비교 시에도 KST 사용 (서버가 UTC여도 동작)
     tz_seoul = ZoneInfo("Asia/Seoul")
     now_dt = datetime.now(tz_seoul)
@@ -200,7 +224,7 @@ def check_and_send_reminders():
     try:
         simulate = is_notification_simulation()
         # 시뮬레이션: 현재 시간 ±5분 구간 매칭, fcm_token 없어도 대상 포함
-        time_window = 5 if simulate else 0
+        time_window = 5 
 
         print(f"[알림] ========== 스케줄 실행 (KST {now} / today={today}) ==========")
         if simulate:
@@ -237,6 +261,7 @@ def check_and_send_reminders():
             return bool(val)
 
         select_cols = "email, fcm_token, remind_time"
+        select_cols_with_sent = "email, fcm_token, remind_sent_at, remind_time"
         if simulate:
             # 시뮬레이션: 조건 완화. remind_time만 not null로 조회 후 Python에서 is_notify 필터
             base_filter = supabase.table("users").select(select_cols).not_.is_("remind_time", "null")
@@ -248,9 +273,12 @@ def check_and_send_reminders():
                 rows = rows_raw
             use_sent = False
         else:
-            base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
+            base_filter = supabase.table("users").select(
+                select_cols if _remind_sent_at_available is False else select_cols_with_sent
+            ).eq("is_notify", True)
             response = base_filter.execute()
             rows = response.data or []
+            use_sent = _remind_sent_at_available is not False
 
         if not rows:
             print(f"[알림] DB 조회 0명 (remind_time 있는 유저 없음)" if simulate else f"[알림] DB 조회 0명 (is_notify=True 유저 없음)")
@@ -271,9 +299,9 @@ def check_and_send_reminders():
             targets = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=time_window)
         else:
             rows = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=0)
-            targets = rows
+            targets = [u for u in rows if _sent_before_today(u.get("remind_sent_at"), today)] if use_sent else rows
 
-        # 발송 대상 (중복 날짜 제한 없음 — 같은 날 여러 번 받을 수 있음)
+        # 발송 대상 (오늘 아직 안 보낸 유저만. 시간 변경 시 remind_sent_at 리셋되어 새 시간에 발송 가능)
         print(f"[알림] ---------- 결과: {len(targets)}명 알림 대상 ----------")
         for u in targets:
             email = u.get("email") or "-"
@@ -304,7 +332,17 @@ def check_and_send_reminders():
                 body="오늘 공부한 내용을 잊기 전에 확인해보세요.",
             )
             if ok:
-                print(f"🔔 알림 발송 완료: {email}")
+                if use_sent and _remind_sent_at_available is not False:
+                    try:
+                        supabase.table("users").update({"remind_sent_at": today}).eq("email", email).execute()
+                        print(f"🔔 알림 발송 및 오늘 발송 기록 완료: {email}")
+                    except Exception as e:
+                        if _is_remind_sent_at_missing_error(e):
+                            _remind_sent_at_available = False
+                            print("⚠️ users.remind_sent_at 컬럼 없음 — 발송 기록 생략. 컬럼 추가 권장.")
+                        print(f"🔔 알림 발송 완료: {email}")
+                else:
+                    print(f"🔔 알림 발송 완료: {email}")
             else:
                 print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [Expo] 로그 참고")
 
@@ -312,4 +350,9 @@ def check_and_send_reminders():
         if is_notification_simulation():
             print(f"🧪 [시뮬레이션] 알림 조회/발송 로직 오류 (무시하고 다음 주기에 재시도): {e}")
             return
-        print(f"❌ 알림 스케줄 태스크 오류: {e}")
+        if _remind_sent_at_available is None and _is_remind_sent_at_missing_error(e):
+            _remind_sent_at_available = False
+            print("⚠️ users.remind_sent_at 컬럼 없음 — 발송 기록 없이 재시도. 컬럼 추가 시 알림 시간 변경 시 리셋 기능 사용 가능.")
+            check_and_send_reminders()
+        else:
+            print(f"❌ 알림 스케줄 태스크 오류: {e}")

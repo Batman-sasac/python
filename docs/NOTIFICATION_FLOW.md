@@ -18,12 +18,7 @@
    │ ── POST /notification-push/update ──────► users.is_notify,         │
    │    (is_notify, remind_time)      │         remind_time 저장          │
    │                                  │                                  │
-   │ 3. 테스트 푸시 (수동)              │                                  │
-   │ ── POST /notification-push/test ────────► DB에서 fcm_token 조회     │
-   │                                  │         send_push_notification() │
-   │                                  │ ──────────────────────────────────► Expo Push API
-   │                                  │                                  │
-   │ 4. 스케줄 복습 알림 (자동)         │                                  │
+   │ 3. 스케줄 복습 알림 (자동)         │                                  │
    │    (앱 호출 없음)                 │  APScheduler 5분마다              │
    │                                  │  check_and_send_reminders()      │
    │                                  │  → is_notify=True & remind_time=now
@@ -43,7 +38,6 @@
 | `registerAndSyncPushToken(authToken)` | iOS에서 Expo 푸시 토큰 발급 후 백엔드에 저장 | 홈 진입 시(App.tsx), 알림 설정 화면 진입 시(AlarmSettingScreen) |
 | `updateNotificationSettings(token, { is_notify, remind_time })` | 복습 알림 on/off, 알림 시간 저장 | 알림 설정 화면에서 토글/시간 변경 시 |
 | `getMyNotificationStatus(authToken)` | 내 알림 설정·토큰 등록 여부 조회 | (필요 시) 알림 설정 화면 등 |
-| `sendTestNotification(authToken)` | 테스트 푸시 1통 발송 요청 | 알림 설정 화면 "테스트 알림 받기" 버튼 |
 | `updatePushToken(authToken, pushToken)` | 발급한 푸시 토큰을 백엔드에 전송 (내부 사용) | `registerAndSyncPushToken` 내부 |
 
 ### 2.2 토큰 플로우 (iOS만)
@@ -73,7 +67,6 @@
 | POST | `/firebase/user/update-fcm-token` | 푸시 토큰 저장 | JSON: `{ "fcm_token": "ExponentPushToken[...]" }` | `{ "status", "message" }` |
 | POST | `/notification-push/update` | 알림 설정 저장 | Form: `is_notify`, `remind_time` (HH:MM) | `{ "status", "message" }` |
 | GET | `/notification-push/me` | 내 알림 설정·토큰 등록 여부 | - | `email`, `is_notify`, `remind_time`, `fcm_token_registered`, `message` |
-| POST | `/notification-push/test` | 테스트 푸시 1통 발송 | - | `{ "status", "message" }` |
 
 - 모든 API는 **Bearer JWT** 필요 (`get_current_user`).
 - 토큰 저장은 **ExponentPushToken 형식만 허용** (그 외는 400/에러 메시지).
@@ -88,23 +81,16 @@
 
 ## 4. 발송 로직 (notification_service.py)
 
-### 4.1 테스트 푸시
+### 4.1 스케줄 복습 알림
 
-1. `notification_app.send_test_notification`: 로그인 유저의 `fcm_token` 조회.
-2. `send_push_notification(token, title, body)` 호출.
-3. `send_push_notification`: ExponentPushToken이 아니면 스킵(False). 맞으면 `send_expo_notification()` 호출.
-4. `send_expo_notification`: `POST https://exp.host/--/api/v2/push/send` 로 `to`, `title`, `body`, `sound` 전송.
-
-### 4.2 스케줄 복습 알림
-
-- **주기**: APScheduler **5분마다** (`main.py` cron `minute="*/5"`).
+- **주기**: APScheduler **매 분** (`main.py` cron `minute="*"`). 지정한 시간이 5분 단위가 아니어도 발송됨.
 - **함수**: `check_and_send_reminders()` (KST 기준).
 - **조건**  
   - `users.is_notify == true`  
   - `users.remind_time` 이 현재 시각(KST, 분 단위)과 일치  
 - **동작**: 대상 유저마다 `send_push_notification()` 발송. 중복 날짜 제한 없음(같은 날 여러 번 받을 수 있음).
 
-### 4.3 Expo Push API
+### 4.2 Expo Push API
 
 - **URL**: `https://exp.host/--/api/v2/push/send`
 - **인증**: 별도 API 키 없이 요청 가능 (Expo 공개 API).

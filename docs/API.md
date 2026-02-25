@@ -42,7 +42,6 @@ Base URL 예: `http://localhost:8000` 또는 환경변수 `API_BASE_URL`.
 |--------|------|------|---------|----------|
 | POST | `/notification-push/update` | 복습 알림 설정 | Form: `is_notify` ("true"/"false"), `remind_time` ("HH:MM") | `{ "status", "message" }` |
 | GET | `/notification-push/me` | 내 알림 설정·푸시 토큰 등록 여부 | - | `{ "status", "email", "is_notify", "remind_time", "fcm_token_registered", "message" }` |
-| POST | `/notification-push/test` | 테스트 푸시 발송 | - | `{ "status", "message" }` |
 
 ---
 
