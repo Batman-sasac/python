@@ -137,25 +137,47 @@ async def get_user_stats(email: str = Depends(get_current_user)):
     
 @app.get("/home/stats")
 async def get_home_stats(email: str = Depends(get_current_user)):
-    """현재 포인트, 한달 목표 반환"""
+    """현재 포인트, 한달 목표, 당월 총 학습 횟수 반환"""
     try:
+        today = date.today()
+        first_day = today.replace(day=1)
+        if today.month == 12:
+            next_first = date(today.year + 1, 1, 1)
+        else:
+            next_first = date(today.year, today.month + 1, 1)
+        start_str = first_day.isoformat()
+        end_str = next_first.isoformat()
+
         user_res = (
             supabase.table("users")
-            .select("points", "monthly_goal") \
-            .eq("email", email) \
-            .single() \
+            .select("points", "monthly_goal")
+            .eq("email", email)
+            .single()
             .execute()
-
         )
+        data = user_res.data if user_res.data else {}
+        points = data.get("points")
+        monthly_goal = data.get("monthly_goal")
 
-        points = user_res.data.get("points")
-        monthly_goal = user_res.data.get("monthly_goal")
+        # 당월 총 학습 횟수: study_logs에서 completed_at이 이번 달인 건수
+        monthly_res = (
+            supabase.table("study_logs")
+            .select("id", count="exact")
+            .eq("user_email", email)
+            .gte("completed_at", start_str)
+            .lt("completed_at", end_str)
+            .execute()
+        )
+        this_month_count = getattr(monthly_res, "count", None)
+        if this_month_count is None:
+            this_month_count = len(monthly_res.data or [])
 
         return {
             "status": "success",
             "data": {
                 "points": points,
                 "monthly_goal": monthly_goal,
+                "this_month_count": this_month_count,
             }
         }
     except Exception as e:
