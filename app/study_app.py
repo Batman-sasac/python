@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
+from datetime import datetime
 from core.database import supabase
 import json
 import psycopg2
@@ -72,11 +73,25 @@ async def grade_quiz(
         insert_res = supabase.table("ocr_data").insert(row).execute()
         new_id = insert_res.data[0]["id"] if insert_res.data else None
 
+        # RLS 등으로 insert 반환값이 비어 있으면, 방금 넣은 행을 조회해서 id 사용
+        if new_id is None:
+            fallback = (
+                supabase.table("ocr_data")
+                .select("id")
+                .eq("user_email", email)
+                .order("id", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if fallback.data and len(fallback.data) > 0:
+                new_id = fallback.data[0]["id"]
+
         # [2] 학습 로그 저장 (방금 삽입한 ocr_data.id 사용)
         if new_id is not None:
             supabase.table("study_logs").insert({
                 "quiz_id": new_id,
-                "user_email": email
+                "user_email": email,
+                "completed_at": datetime.now().isoformat(),
             }).execute()
 
         new_points = None
