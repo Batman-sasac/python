@@ -16,4 +16,4 @@ ENV SUPABASE_JWT_SECRET_KEY=${SUPABASE_JWT_SECRET_KEY}
 ENV SUPABASE_JWT_ALGORITHM=${SUPABASE_JWT_ALGORITHM}
 ENV SUPABASE_JWT_EXPIRATION_TIME=${SUPABASE_JWT_EXPIRATION_TIME}
 
-CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000"]
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000"]

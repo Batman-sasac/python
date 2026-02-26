@@ -117,6 +117,14 @@
 |------|------|
 | `NOTIFICATION_SIMULATE` | `1` 또는 `true` 이면 실제 발송/DB 갱신 없이 스케줄 로직만 실행 (테스트용). |
 
+**어디서 확인/설정하나요?**
+
+- **파일**: 백엔드 프로젝트 루트의 **`.env`** (예: `python/.env`).  
+  `main.py`에서 `load_dotenv()`로 이 파일을 읽습니다.
+- **실제 발송**을 하려면: `.env`에 `NOTIFICATION_SIMULATE`를 **넣지 않거나**, `NOTIFICATION_SIMULATE=0` 으로 두세요.  
+  `1` 또는 `true`이면 푸시는 나가지 않고 로그만 찍힙니다.
+- **서버 시작 시**: 콘솔에 `환경 변수 NOTIFICATION_SIMULATE='...'` 가 출력되므로, 여기서 현재 값 확인 가능.
+
 - Firebase Admin / FCM 설정은 **사용하지 않음** (Expo Push API만 사용).
 
 ---

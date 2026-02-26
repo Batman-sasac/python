@@ -72,8 +72,10 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
+    sim_val = os.getenv("NOTIFICATION_SIMULATE", "")
     mode = "🧪 시뮬레이션 (DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
     print(f"⏰ 알림 스케줄러 시작 — 매 분 복습 알림 체크 ({mode})")
+    print(f"   환경 변수 NOTIFICATION_SIMULATE={sim_val!r} (비우거나 0이면 실제 발송)")
    
 
 

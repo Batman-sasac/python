@@ -317,6 +317,16 @@ def check_and_send_reminders():
             rows = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=0)
             targets = [u for u in rows if _sent_before_today(u.get("remind_sent_at"), today)] if use_sent else rows
 
+        # 같은 이메일 중복 제거 — 워커 다중 또는 DB 중복 시 한 유저당 한 번만 발송
+        seen_emails = set()
+        unique_targets = []
+        for u in targets:
+            email = u.get("email") or ""
+            if email not in seen_emails:
+                seen_emails.add(email)
+                unique_targets.append(u)
+        targets = unique_targets
+
         # 발송 대상 (오늘 아직 안 보낸 유저만. 시간 변경 시 remind_sent_at 리셋되어 새 시간에 발송 가능)
         print(f"[알림] ---------- 결과: {len(targets)}명 알림 대상 ----------")
         for u in targets:
