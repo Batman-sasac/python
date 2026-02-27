@@ -140,9 +140,9 @@ async def grade_quiz(
 
         return {
             "status": "success",
-            "score": grade_cnt,
+            "score": grade_cnt, # 정답 수
             "reward_given": grade_cnt * 2 if grade_cnt > 0 else 0,
-            "new_points": new_points
+            "new_points": new_points # 누적 포인트
         }
 
     except Exception as e:
@@ -200,7 +200,7 @@ async def review_page(
         return HTMLResponse(content="데이터를 찾을 수 없습니다.", status_code=404)
 
 
-# 복습 완료 — 프론트: POST /study/review-study, JSON { quiz_id, user_answers[] } → { status, new_points }
+# 복습 완료 — 프론트: POST /study/review-study, JSON { quiz_id, user_answers[] } → { status, score, reward_given, new_points }
 @app.post("/review-study")
 async def review_study_reward(request: Request, email: str = Depends(get_current_user)):
     print(f"복습 완료 시 리워드 제공 유저:{email}")
@@ -255,7 +255,12 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
             lambda: supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
         )
 
-        return {"status": "success", "new_points": new_total_points}
+        return {
+            "status": "success",
+            "score": score, # 정답 수
+            "reward_given": total_reward, # 리워드 수
+            "new_points": new_total_points # 누적 포인트
+        }
     except Exception as e:
         print(f"오류: {e}")
         return {"status": "error", "message": str(e)}
