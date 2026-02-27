@@ -67,7 +67,7 @@ def start_scheduler():
     scheduler.add_job(
         check_and_send_reminders,
         "cron",
-        minute="*",
+        minute="*/5",
         id="check_and_send_reminders",
         replace_existing=True,
     )
