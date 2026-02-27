@@ -99,6 +99,8 @@ async def grade_quiz(
                             "quiz_id": new_id,
                             "user_email": email,
                             "completed_at": datetime.now().isoformat(),
+                            "correct_count": grade_cnt,
+                            "question_count": len(correct_ans),
                         }).execute()
                     ),
                     asyncio.to_thread(
@@ -131,6 +133,8 @@ async def grade_quiz(
                         "quiz_id": new_id,
                         "user_email": email,
                         "completed_at": datetime.now().isoformat(),
+                        "correct_count": 0,
+                        "question_count": len(correct_ans),
                     }).execute()
                 )
 
@@ -235,7 +239,9 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
                 lambda: supabase.table("study_logs").insert({
                     "user_email": email,
                     "quiz_id": quiz_id,
-                    "completed_at": datetime.now().isoformat()
+                    "completed_at": datetime.now().isoformat(),
+                    "correct_count": score,
+                    "question_count": len(all_user_answers),
                 }).execute()
             ),
         )

@@ -44,65 +44,93 @@ async def set_study_goal(
 
         
 
-# 2. 주간 성장 그래프 데이터 (SELECT & 가공)
+# 2. 주간 성장 그래프: (해당 주 정답률) * (해당 주 출석률)
+# 정답률 = (해당 주 전체 정답 수 / 해당 주 전체 문항 수) * 100
+# 출석률 = (실제 출석 일수 / 7일) * 100
+# 주차 점수 = (정답률 * 출석률) / 100 → 0~100
 @app.get("/stats/weekly-growth")
 async def get_weekly_growth(
-email: str = Depends(get_current_user)
+    email: str = Depends(get_current_user)
 ):
-
     print(f"주간 성장 데이터 유저:{email}")
- 
+
     try:
-        # 5주 전 월요일부터의 데이터를 가져옴
         five_weeks_ago = (date.today() - timedelta(weeks=5)).isoformat()
-        
-        # 1. 원본 데이터 가져오기 (CTE 대신 파이썬에서 그룹화)
-        res = supabase.table("ocr_data") \
-            .select("id, created_at") \
+
+        # 1) study_logs: 학습지별 정답 수·문항 수 (DB 저장값 사용)
+        logs_res = supabase.table("study_logs") \
+            .select("completed_at, correct_count, question_count") \
             .eq("user_email", email) \
+            .gte("completed_at", five_weeks_ago) \
+            .execute()
+        logs = logs_res.data or []
+
+        # 2) reward_history: 출석체크만으로 해당 주 실제 출석 일수
+        reward_res = supabase.table("reward_history") \
+            .select("created_at, reason") \
+            .eq("user_email", email) \
+            .eq("reason", "출석체크") \
             .gte("created_at", five_weeks_ago) \
             .execute()
+        rewards = reward_res.data or []
 
-        data = res.data
-        
-        # 2. 주차별 그룹화 및 점수 계산 (파이썬 로직)
-        weekly_map = {}
-        for item in data:
-            dt = datetime.fromisoformat(item['created_at'].replace('Z', '+00:00'))
-            # 해당 주차의 월요일 구하기
-            week_start = (dt.date() - timedelta(days=dt.weekday())).isoformat()
-            
-            if week_start not in weekly_map:
-                weekly_map[week_start] = {"attend_dates": set(), "count": 0}
-            
-            weekly_map[week_start]["attend_dates"].add(dt.date())
-            weekly_map[week_start]["count"] += 1
+        def _week_start(d):
+            if isinstance(d, str):
+                d = datetime.fromisoformat(d.replace("Z", "+00:00")).date()
+            return (d - timedelta(days=d.weekday())).isoformat()
 
-        # 3. 라벨 및 점수 생성 (최근 5주)
+        # 주차별: 전체 정답 수 합계, 전체 문항 수 합계, 출석한 날 집합
+        weekly = {}
+        for row in logs:
+            completed = row.get("completed_at")
+            if not completed:
+                continue
+            week_key = _week_start(completed)
+            if week_key not in weekly:
+                weekly[week_key] = {"correct_sum": 0, "question_sum": 0, "attend_dates": set()}
+            weekly[week_key]["correct_sum"] += row.get("correct_count") or 0
+            weekly[week_key]["question_sum"] += row.get("question_count") or 0
+
+        for row in rewards:
+            created = row.get("created_at")
+            if not created:
+                continue
+            dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            week_key = _week_start(dt.date())
+            if week_key not in weekly:
+                weekly[week_key] = {"correct_sum": 0, "question_sum": 0, "attend_dates": set()}
+            weekly[week_key]["attend_dates"].add(dt.date())
+
+        # 3) 라벨 및 점수: 정답률(%) * 출석률(%) / 100
         labels = []
         scores = []
         today_monday = date.today() - timedelta(days=date.today().weekday())
 
         for i in range(4, -1, -1):
-            target_date = (today_monday - timedelta(weeks=i))
-            target_iso = target_date.isoformat()
-            
-            # 라벨 이름 정하기
-            if i == 0: label = "이번 주"
-            elif i == 1: label = "지난 주"
-            else: label = f"{i}주 전"
-            
-            labels.append(label)
-            
-            # 점수 계산
-            stats = weekly_map.get(target_iso)
-            if stats:
-                attend_days = len(stats["attend_dates"])
-                activity_score = stats["count"] * 10.0
-                growth_score = min((activity_score * (attend_days / 7.0)), 100)
-                scores.append(round(growth_score, 1))
+            target_monday = today_monday - timedelta(weeks=i)
+            target_iso = target_monday.isoformat()
+            if i == 0:
+                label = "이번 주"
+            elif i == 1:
+                label = "지난 주"
             else:
+                label = f"{i}주 전"
+            labels.append(label)
+
+            st = weekly.get(target_iso)
+            if not st:
                 scores.append(0)
+                continue
+            question_sum = st["question_sum"]
+            correct_sum = st["correct_sum"]
+            # 정답률 = (해당 주 전체 정답 수 / 해당 주 전체 문항 수) * 100
+            correct_rate = (correct_sum / question_sum * 100.0) if question_sum > 0 else 0.0
+            # 출석률 = (실제 출석 일수 / 7일) * 100
+            attend_days = len(st["attend_dates"])
+            attendance_rate = min(attend_days / 7.0, 1.0) * 100.0
+            # 주차 점수 = (정답률 * 출석률) / 100 → 0~100
+            score = (correct_rate * attendance_rate) / 100.0
+            scores.append(round(score, 1))
 
         return {"labels": labels, "data": scores}
     except Exception as e:
