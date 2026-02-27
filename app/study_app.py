@@ -1,5 +1,6 @@
-# 재첨 후 정답 저장 
+# 재첨 후 정답 저장
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
@@ -86,43 +87,52 @@ async def grade_quiz(
             if fallback.data and len(fallback.data) > 0:
                 new_id = fallback.data[0]["id"]
 
-        # [2] 학습 로그 저장 (방금 삽입한 ocr_data.id 사용)
-        if new_id is not None:
-            supabase.table("study_logs").insert({
-                "quiz_id": new_id,
-                "user_email": email,
-                "completed_at": datetime.now().isoformat(),
-            }).execute()
-
+        # [2] 학습 로그 + [3] 리워드: 서로 독립이므로 병렬 실행 (DB 왕복 횟수 감소)
         new_points = None
-
-        # [3] 리워드 지급
-        if grade_cnt > 0:
-            reward_amount = grade_cnt * 2
-
-            print(f"reward_amount: {reward_amount}")
-
-            supabase.table("reward_history").insert({
-                "user_email": email,
-                "reward_amount": reward_amount,
-                "reason": f"초기 학습 리워드: {grade_cnt}개 정답"
-            }).execute()
-
-            # 현재 포인트 조회
-            user_res = supabase.table("users") \
-                .select("points") \
-                .eq("email", email) \
-                .single() \
-                .execute()
-
-            current_points = user_res.data.get("points") or 0
-            new_points = current_points + reward_amount
-
-            # 포인트 업데이트
-            supabase.table("users") \
-                .update({"points": new_points}) \
-                .eq("email", email) \
-                .execute()
+        if new_id is not None:
+            if grade_cnt > 0:
+                reward_amount = grade_cnt * 2
+                print(f"reward_amount: {reward_amount}")
+                await asyncio.gather(
+                    asyncio.to_thread(
+                        lambda: supabase.table("study_logs").insert({
+                            "quiz_id": new_id,
+                            "user_email": email,
+                            "completed_at": datetime.now().isoformat(),
+                        }).execute()
+                    ),
+                    asyncio.to_thread(
+                        lambda: supabase.table("reward_history").insert({
+                            "user_email": email,
+                            "reward_amount": reward_amount,
+                            "reason": f"초기 학습 리워드: {grade_cnt}개 정답"
+                        }).execute()
+                    ),
+                )
+                # 포인트 조회·업데이트는 리워드 insert 이후에만 의미 있음
+                user_res = await asyncio.to_thread(
+                    lambda: supabase.table("users")
+                    .select("points")
+                    .eq("email", email)
+                    .single()
+                    .execute()
+                )
+                current_points = user_res.data.get("points") or 0
+                new_points = current_points + reward_amount
+                await asyncio.to_thread(
+                    lambda: supabase.table("users")
+                    .update({"points": new_points})
+                    .eq("email", email)
+                    .execute()
+                )
+            else:
+                await asyncio.to_thread(
+                    lambda: supabase.table("study_logs").insert({
+                        "quiz_id": new_id,
+                        "user_email": email,
+                        "completed_at": datetime.now().isoformat(),
+                    }).execute()
+                )
 
         return {
             "status": "success",
@@ -201,35 +211,43 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
         correct_answers = res.data.get("answers") or []
 
         # 채점
-        score = sum(1 for u, c in zip(all_user_answers, correct_answers) 
+        score = sum(1 for u, c in zip(all_user_answers, correct_answers)
                     if str(u).strip() == str(c).strip().lower())
         total_reward = score * 2
 
-        # 리워드 이력 추가
-        supabase.table("reward_history").insert({
-            "user_email": email,
-            "reward_amount": total_reward,
-            "reason": "복습학습을 통한 정답 리워드"
-        }).execute()
+        # 리워드 이력 / ocr_data 업데이트 / study_logs — 서로 독립이므로 병렬 실행
+        await asyncio.gather(
+            asyncio.to_thread(
+                lambda: supabase.table("reward_history").insert({
+                    "user_email": email,
+                    "reward_amount": total_reward,
+                    "reason": "복습학습을 통한 정답 리워드"
+                }).execute()
+            ),
+            asyncio.to_thread(
+                lambda: supabase.table("ocr_data")
+                .update({"user_answers": all_user_answers})
+                .eq("id", quiz_id)
+                .eq("user_email", email)
+                .execute()
+            ),
+            asyncio.to_thread(
+                lambda: supabase.table("study_logs").insert({
+                    "user_email": email,
+                    "quiz_id": quiz_id,
+                    "completed_at": datetime.now().isoformat()
+                }).execute()
+            ),
+        )
 
-        # 답변 업데이트 (user_answers JSON 컬럼)
-        supabase.table("ocr_data") \
-            .update({"user_answers": all_user_answers}) \
-            .eq("id", quiz_id) \
-            .eq("user_email", email) \
-            .execute()
-
-        # study_logs 테이블에 로그 저장
-        supabase.table("study_logs").insert({
-            "user_email": email,
-            "quiz_id": quiz_id,
-            "completed_at": datetime.now().isoformat()
-        }).execute()
-
-        # 유저 포인트 합산 업데이트
-        user_res = supabase.table("users").select("points").eq("email", email).single().execute()
+        # 유저 포인트 합산 업데이트 (리워드 반영 후 1회 조회 + 1회 업데이트)
+        user_res = await asyncio.to_thread(
+            lambda: supabase.table("users").select("points").eq("email", email).single().execute()
+        )
         new_total_points = (user_res.data.get("points") or 0) + total_reward
-        supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
+        await asyncio.to_thread(
+            lambda: supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
+        )
 
         return {"status": "success", "new_points": new_total_points}
     except Exception as e:
