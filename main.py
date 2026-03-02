@@ -21,7 +21,7 @@ from app import (
     user_app,
     weekly_app,
 )
-from app.auth import kakao_login_app, naver_login_app
+from app.auth import kakao_login_app, naver_login_app, apple_login_app
 from app.hint import hint_app
 from app.firebase_app import app as firebase_app
 from app.reward_app import check_attendance_and_reward
@@ -38,6 +38,7 @@ if os.path.exists("static"):
 app.include_router(user_app.app)
 app.include_router(naver_login_app.app)
 app.include_router(kakao_login_app.app)
+app.include_router(apple_login_app.app)
 app.include_router(ocr_app.app)
 app.include_router(study_app.app)
 app.include_router(hint_app.app)

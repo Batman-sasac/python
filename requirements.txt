@@ -6,8 +6,8 @@ gunicorn
 apscheduler
 requests
 
-# JWT 인증 (security_app, user_app, main 등)
-PyJWT
+# JWT 인증 (security_app, user_app, main 등) / Apple JWT 검증(RS256)
+PyJWT[crypto]
 
 # 템플릿 (study_app - Jinja2Templates)
 jinja2
