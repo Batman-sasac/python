@@ -18,21 +18,37 @@ class AppleLoginRequest(BaseModel):
     identity_token: str
 
 
+# Apple Sign In: iOS 앱의 identity_token aud는 번들 ID입니다.
+APPLE_ISSUER = "https://appleid.apple.com"
+# .env에 없으면 앱 번들 ID 기본값 (app.json의 ios.bundleIdentifier와 동일해야 함)
+DEFAULT_APPLE_BUNDLE_ID = "com.batman.bat"
+
+
 def _verify_apple_token(identity_token: str) -> dict | None:
     """Apple identity_token JWT 검증 후 payload 반환. 실패 시 None."""
     try:
         jwks_client = PyJWKClient("https://appleid.apple.com/auth/keys")
         signing_key = jwks_client.get_signing_key_from_jwt(identity_token)
-        audience = os.getenv("APPLE_CLIENT_ID") or os.getenv("APPLE_BUNDLE_ID")
-        decode_kw = {"algorithms": ["RS256"]}
-        if audience:
-            decode_kw["audience"] = audience
-        else:
-            decode_kw["options"] = {"verify_audience": False}
-        payload = jwt.decode(identity_token, signing_key.key, **decode_kw)
+        audience = os.getenv("APPLE_CLIENT_ID") or os.getenv("APPLE_BUNDLE_ID") or DEFAULT_APPLE_BUNDLE_ID
+        payload = jwt.decode(
+            identity_token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=audience,
+            issuer=APPLE_ISSUER,
+        )
         return payload
+    except jwt.ExpiredSignatureError as e:
+        print(f"[Apple 로그인] JWT 만료: {e}")
+        return None
+    except jwt.InvalidAudienceError as e:
+        print(f"[Apple 로그인] audience 불일치 (aud). .env의 APPLE_BUNDLE_ID가 앱 번들 ID와 같은지 확인: {e}")
+        return None
+    except jwt.InvalidIssuerError as e:
+        print(f"[Apple 로그인] issuer 불일치: {e}")
+        return None
     except Exception as e:
-        print(f"[Apple 로그인] JWT 검증 실패: {e}")
+        print(f"[Apple 로그인] JWT 검증 실패: {type(e).__name__}: {e}")
         return None
 
 
