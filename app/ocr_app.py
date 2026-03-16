@@ -31,6 +31,13 @@ from app.security_app import get_current_user
 
 app = APIRouter(tags=["OCR"])
 
+# OCR 무료 사용량 제한을 적용하지 않을 유저 이메일 화이트리스트
+OCR_UNLIMITED_EMAILS = {
+    "himang0623@kakao.com",
+    "wkd4kqg8k@privaterelay.appleid.com",
+    "kdabin111@hanmail.net",
+}
+
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
 clova_service = CLOVAOCRService(API_KEY)
@@ -70,6 +77,18 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
     pages_used >= 50 이면 "이용가능한 무료 횟수를 다 사용하셨습니다" 반환.
     """
     used = get_user_ocr_usage(email)
+
+    # 화이트리스트 유저는 한도 메시지 없이 항상 사용 가능
+    if email in OCR_UNLIMITED_EMAILS:
+        remaining = max(0, OCR_PAGE_LIMIT - used)
+        return {
+            "status": "ok",
+            "pages_used": used,
+            "pages_limit": OCR_PAGE_LIMIT,
+            "remaining": remaining,
+            "is_unlimited": True,
+        }
+
     remaining = max(0, OCR_PAGE_LIMIT - used)
 
     if used >= OCR_PAGE_LIMIT:
@@ -153,14 +172,17 @@ async def run_ocr_endpoint(
 
         # 사용량 한도 체크 (OCR 호출 전)
         estimated = estimate_page_count(file_bytes, filename)
-        can_use, used = check_can_use(email, estimated)
-        if not can_use:
-            return {
-                "status": "limit_reached",
-                "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
-                "pages_used": used,
-                "pages_limit": OCR_PAGE_LIMIT,
-            }
+
+        # 화이트리스트 유저는 사용량 제한 체크를 건너뛰고, 사용량 기록만 유지
+        if email not in OCR_UNLIMITED_EMAILS:
+            can_use, used = check_can_use(email, estimated)
+            if not can_use:
+                return {
+                    "status": "limit_reached",
+                    "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
+                    "pages_used": used,
+                    "pages_limit": OCR_PAGE_LIMIT,
+                }
 
         # 네이버 OCR: crop 이 있으면 잘린 영역 이미지만 전달 → 좌표 영역에서 추출한 텍스트만 결과로 반환
         result = clova_service.process_file(file_bytes, filename)
