@@ -214,9 +214,16 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
     quiz_id = data.get("quiz_id")
     all_user_answers = data.get("user_answers")
 
+    if quiz_id is None:
+        return {"status": "error", "message": "quiz_id가 필요합니다."}
+    if all_user_answers is None:
+        return {"status": "error", "message": "user_answers가 필요합니다."}
+
     try:
         # DB: answers (jsonb) 컬럼에 정답 배열 저장됨
-        res = supabase.table("ocr_data").select("answers").eq("id", quiz_id).single().execute()
+        res = supabase.table("ocr_data").select("answers").eq("id", quiz_id).eq("user_email", email).single().execute()
+        if not res.data:
+            return {"status": "error", "message": "해당 퀴즈를 찾을 수 없습니다."}
         correct_answers = res.data.get("answers") or []
 
         # 채점
@@ -230,7 +237,8 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
                 lambda: supabase.table("reward_history").insert({
                     "user_email": email,
                     "reward_amount": total_reward,
-                    "reason": "복습학습을 통한 정답 리워드"
+                    "reason": "복습학습을 통한 정답 리워드",
+                    "created_at": datetime.utcnow().isoformat(),
                 }).execute()
             ),
             asyncio.to_thread(
@@ -255,7 +263,7 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
         user_res = await asyncio.to_thread(
             lambda: supabase.table("users").select("points").eq("email", email).single().execute()
         )
-        new_total_points = (user_res.data.get("points") or 0) + total_reward
+        new_total_points = ((user_res.data or {}).get("points") or 0) + total_reward
         await asyncio.to_thread(
             lambda: supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
         )
