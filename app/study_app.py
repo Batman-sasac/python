@@ -72,7 +72,8 @@ async def grade_quiz(
             "quiz_html": {"raw": quiz_html} if isinstance(quiz_html, str) else quiz_html,
         }
         insert_res = supabase.table("ocr_data").insert(row).execute()
-        new_id = insert_res.data[0]["id"] if insert_res.data else None
+        # insert 반환값이 비어 있을 수 있음(RLS 등) — IndexError 방지
+        new_id = (insert_res.data[0]["id"] if insert_res.data and len(insert_res.data) > 0 else None)
 
         # RLS 등으로 insert 반환값이 비어 있으면, 방금 넣은 행을 조회해서 id 사용
         if new_id is None:
@@ -87,56 +88,60 @@ async def grade_quiz(
             if fallback.data and len(fallback.data) > 0:
                 new_id = fallback.data[0]["id"]
 
+        if new_id is None:
+            print(f"⚠️ [채점] ocr_data insert 후 id를 가져오지 못함. user_email={email}, grade_cnt={grade_cnt}")
+            return {"status": "error", "message": "학습 저장 후 ID를 확인할 수 없어 리워드 저장에 실패했습니다."}
+
         # [2] 학습 로그 + [3] 리워드: 서로 독립이므로 병렬 실행 (DB 왕복 횟수 감소)
         new_points = None
-        if new_id is not None:
-            if grade_cnt > 0:
-                reward_amount = grade_cnt * 2
-                print(f"reward_amount: {reward_amount}")
-                await asyncio.gather(
-                    asyncio.to_thread(
-                        lambda: supabase.table("study_logs").insert({
-                            "quiz_id": new_id,
-                            "user_email": email,
-                            "completed_at": datetime.now().isoformat(),
-                            "correct_count": grade_cnt,
-                            "question_count": len(correct_ans),
-                        }).execute()
-                    ),
-                    asyncio.to_thread(
-                        lambda: supabase.table("reward_history").insert({
-                            "user_email": email,
-                            "reward_amount": reward_amount,
-                            "reason": f"초기 학습 리워드: {grade_cnt}개 정답"
-                        }).execute()
-                    ),
-                )
-                # 포인트 조회·업데이트는 리워드 insert 이후에만 의미 있음
-                user_res = await asyncio.to_thread(
-                    lambda: supabase.table("users")
-                    .select("points")
-                    .eq("email", email)
-                    .single()
-                    .execute()
-                )
-                current_points = user_res.data.get("points") or 0
-                new_points = current_points + reward_amount
-                await asyncio.to_thread(
-                    lambda: supabase.table("users")
-                    .update({"points": new_points})
-                    .eq("email", email)
-                    .execute()
-                )
-            else:
-                await asyncio.to_thread(
+        if grade_cnt > 0:
+            reward_amount = grade_cnt * 2
+            print(f"reward_amount: {reward_amount}, new_id: {new_id}, grade_cnt: {grade_cnt}")
+            await asyncio.gather(
+                asyncio.to_thread(
                     lambda: supabase.table("study_logs").insert({
                         "quiz_id": new_id,
                         "user_email": email,
                         "completed_at": datetime.now().isoformat(),
-                        "correct_count": 0,
+                        "correct_count": grade_cnt,
                         "question_count": len(correct_ans),
                     }).execute()
-                )
+                ),
+                asyncio.to_thread(
+                    lambda: supabase.table("reward_history").insert({
+                        "user_email": email,
+                        "reward_amount": reward_amount,
+                        "reason": f"초기 학습 리워드: {grade_cnt}개 정답",
+                        "created_at": datetime.utcnow().isoformat(),
+                    }).execute()
+                ),
+            )
+            # 포인트 조회·업데이트는 리워드 insert 이후에만 의미 있음
+            user_res = await asyncio.to_thread(
+                lambda: supabase.table("users")
+                .select("points")
+                .eq("email", email)
+                .single()
+                .execute()
+            )
+            current_points = user_res.data.get("points") or 0
+            new_points = current_points + reward_amount
+            await asyncio.to_thread(
+                lambda: supabase.table("users")
+                .update({"points": new_points})
+                .eq("email", email)
+                .execute()
+            )
+        else:
+            await asyncio.to_thread(
+                lambda: supabase.table("study_logs").insert({
+                    "quiz_id": new_id,
+                    "user_email": email,
+                    "completed_at": datetime.now().isoformat(),
+                    "correct_count": 0,
+                    "question_count": len(correct_ans),
+                }).execute()
+            )
 
         return {
             "status": "success",
