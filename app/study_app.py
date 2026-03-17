@@ -72,25 +72,15 @@ async def grade_quiz(
             "quiz_html": {"raw": quiz_html} if isinstance(quiz_html, str) else quiz_html,
         }
         insert_res = supabase.table("ocr_data").insert(row).execute()
-        # insert 반환값이 비어 있을 수 있음(RLS 등) — IndexError 방지
-        new_id = (insert_res.data[0]["id"] if insert_res.data and len(insert_res.data) > 0 else None)
-
-        # RLS 등으로 insert 반환값이 비어 있으면, 방금 넣은 행을 조회해서 id 사용
-        if new_id is None:
-            fallback = (
-                supabase.table("ocr_data")
-                .select("id")
-                .eq("user_email", email)
-                .order("id", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if fallback.data and len(fallback.data) > 0:
-                new_id = fallback.data[0]["id"]
+        # insert 하면 방금 넣은 행이 반환됨 (service_role 사용 시). id만 추출
+        data = insert_res.data
+        first = (data[0] if (isinstance(data, list) and data) else data) if data else None
+        new_id = first.get("id") if isinstance(first, dict) else None
 
         if new_id is None:
-            print(f"⚠️ [채점] ocr_data insert 후 id를 가져오지 못함. user_email={email}, grade_cnt={grade_cnt}")
-            return {"status": "error", "message": "학습 저장 후 ID를 확인할 수 없어 리워드 저장에 실패했습니다."}
+            # insert 반환이 비어있음 → service_role 키 미사용 또는 RLS로 반환 차단된 경우
+            print(f"⚠️ [채점] ocr_data insert 반환에 id 없음. user_email={email}, grade_cnt={grade_cnt}")
+            return {"status": "error", "message": "학습 저장 후 id를 받지 못해 리워드·학습 로그 저장에 실패했습니다. SUPABASE_SERVICE_ROLE_KEY 사용 여부를 확인하세요."}
 
         # [2] 학습 로그 + [3] 리워드: 서로 독립이므로 병렬 실행 (DB 왕복 횟수 감소)
         new_points = None
