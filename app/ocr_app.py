@@ -307,21 +307,26 @@ async def delete_ocr_data(quiz_id: int, email: str = Depends(get_current_user)):
 @app.get("/ocr/list")
 async def get_ocr_list(
     email: str = Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
 ):
     print(f"학습 목록 요청 유저: {email}")
 
 
     try:
+        start = (page - 1) * size
+        end = start + size - 1
         response = (
             supabase.table("ocr_data")
             .select("id, study_name, subject_name, ocr_text, created_at")
             .eq("user_email", email)
             .order("created_at", desc=True)
+            .range(start, end)
             .execute()
         )
 
         formatted_data = []
-        for item in response.data:
+        for item in (response.data or []):
             ocr_val = item.get("ocr_text") or {}
             pages = ocr_val.get("pages", [])
             first_text = pages[0].get("original_text", "") if pages else ""
@@ -335,7 +340,10 @@ async def get_ocr_list(
             })
 
         return {
-            "data": formatted_data
+            "data": formatted_data,
+            "page": page,
+            "size": size,
+            "has_more": len(formatted_data) == size,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
