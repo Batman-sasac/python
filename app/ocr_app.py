@@ -34,7 +34,7 @@ app = APIRouter(tags=["OCR"])
 # OCR 무료 사용량 제한을 적용하지 않을 유저 이메일 화이트리스트
 OCR_UNLIMITED_EMAILS = {
     "himang0623@kakao.com",
-    "wkd4kqg8k@privaterelay.appleid.com",
+    "wkd4fkqg8k@privaterelay.appleid.com",
     "kdabin111@hanmail.net",
 }
 
