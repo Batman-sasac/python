@@ -38,6 +38,9 @@ OCR_UNLIMITED_EMAILS = {
     "kdabin111@hanmail.net",
 }
 
+def _normalize_email(value: Optional[str]) -> str:
+    return (value or "").strip().lower()
+
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
 clova_service = CLOVAOCRService(API_KEY)
@@ -76,10 +79,11 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
     회원의 OCR 사용량 조회.
     pages_used >= 50 이면 "이용가능한 무료 횟수를 다 사용하셨습니다" 반환.
     """
-    used = get_user_ocr_usage(email)
+    email_norm = _normalize_email(email)
+    used = get_user_ocr_usage(email_norm)
 
     # 화이트리스트 유저는 한도 메시지 없이 항상 사용 가능
-    if email in OCR_UNLIMITED_EMAILS:
+    if email_norm in OCR_UNLIMITED_EMAILS:
         remaining = max(0, OCR_PAGE_LIMIT - used)
         return {
             "status": "ok",
@@ -150,6 +154,7 @@ async def run_ocr_endpoint(
     try:
         file_bytes = await file.read()
         filename = file.filename or "image.jpg"
+        email_norm = _normalize_email(email)
 
         # 수신한 crop 값 로그 (디버깅)
         print(f"[OCR] 수신 crop_x={crop_x!r}, crop_y={crop_y!r}, crop_width={crop_width!r}, crop_height={crop_height!r}")
@@ -174,8 +179,8 @@ async def run_ocr_endpoint(
         estimated = estimate_page_count(file_bytes, filename)
 
         # 화이트리스트 유저는 사용량 제한 체크를 건너뛰고, 사용량 기록만 유지
-        if email not in OCR_UNLIMITED_EMAILS:
-            can_use, used = check_can_use(email, estimated)
+        if email_norm not in OCR_UNLIMITED_EMAILS:
+            can_use, used = check_can_use(email_norm, estimated)
             if not can_use:
                 return {
                     "status": "limit_reached",
@@ -193,10 +198,10 @@ async def run_ocr_endpoint(
 
         # 사용량 DB 저장
         page_count = result.get("page_count", 1)
-        add_ocr_usage(email, page_count)
+        add_ocr_usage(email_norm, page_count)
 
         # 응답: 잘린 영역에서 추출한 텍스트(original_text, keywords)만 반환. 이미지 bytes는 반환하지 않음.
-        return {"status": "success", "data": result}
+        return {"status": "success", "data": result, "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS)}
 
     except Exception as e:
         print(f"서버 내부 에러: {e}")
