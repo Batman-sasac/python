@@ -25,6 +25,9 @@ class QuizSubmitRequest(BaseModel):
     user_answers: List[str]
     correct_answers: List[str]
     grade_cnt: int
+    # 페이지별 채점 결과 (pages index 기준)
+    page_correct_counts: Optional[List[int]] = None
+    page_question_counts: Optional[List[int]] = None
     original_text: List[str] = []
     keywords: List[str] = []
     quiz_html: str = ""
@@ -57,6 +60,15 @@ async def grade_quiz(
             "blanks": [{"blank_index": i, "word": w, "page_index": 0} for i, w in enumerate(payload.keywords)],
             "quiz": {"raw": payload.quiz_html or ""},
         }
+    # 페이지별 채점 결과도 함께 저장 (스키마 변경 없이 ocr_text에 포함)
+    page_stats = {}
+    if payload.page_correct_counts is not None:
+        page_stats["correct_counts"] = payload.page_correct_counts
+    if payload.page_question_counts is not None:
+        page_stats["question_counts"] = payload.page_question_counts
+    if page_stats:
+        ocr_text = dict(ocr_text)
+        ocr_text["page_stats"] = page_stats
 
     if not correct_ans or not email:
         return {"status": "error", "message": "필수 데이터가 누락되었습니다."}
