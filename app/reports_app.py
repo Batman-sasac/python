@@ -2,6 +2,7 @@
 # reports 테이블 컬럼: reporter_email, report_type, content, target_type, target_id, created_at, status
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -36,7 +37,7 @@ async def submit_report(
             "report_type": data.report_type,
             "content": data.content.strip(),
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
         }
         supabase.table("reports").insert(row).execute()
         return {

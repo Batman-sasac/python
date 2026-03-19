@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Form
 from core.database import supabase
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Tuple, Optional
 
 from app.security_app import get_current_user
@@ -39,7 +40,7 @@ def _auto_attendance_check(email: str) -> Tuple[bool, int]:
             "user_email": email,
             "reward_amount": REWARD_AMOUNT,
             "reason": REASON_ATTENDANCE,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
         }).execute()
 
         # 3. users.points 업데이트

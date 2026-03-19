@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Body, Depends, Form
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from core.database import supabase
 import json
 import psycopg2
@@ -92,7 +93,7 @@ async def grade_quiz(
                     lambda: supabase.table("study_logs").insert({
                         "quiz_id": new_id,
                         "user_email": email,
-                        "completed_at": datetime.now().isoformat(),
+                        "completed_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                         "correct_count": grade_cnt,
                         "question_count": len(correct_ans),
                     }).execute()
@@ -102,7 +103,7 @@ async def grade_quiz(
                         "user_email": email,
                         "reward_amount": reward_amount,
                         "reason": f"초기 학습 리워드: {grade_cnt}개 정답",
-                        "created_at": datetime.utcnow().isoformat(),
+                        "created_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                     }).execute()
                 ),
             )
@@ -127,7 +128,7 @@ async def grade_quiz(
                 lambda: supabase.table("study_logs").insert({
                     "quiz_id": new_id,
                     "user_email": email,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                     "correct_count": 0,
                     "question_count": len(correct_ans),
                 }).execute()
@@ -228,7 +229,7 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
                     "user_email": email,
                     "reward_amount": total_reward,
                     "reason": "복습학습을 통한 정답 리워드",
-                    "created_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                 }).execute()
             ),
             asyncio.to_thread(
@@ -242,7 +243,7 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
                 lambda: supabase.table("study_logs").insert({
                     "user_email": email,
                     "quiz_id": quiz_id,
-                    "completed_at": datetime.now().isoformat(),
+                    "completed_at": datetime.now(ZoneInfo("Asia/Seoul")).isoformat(),
                     "correct_count": score,
                     "question_count": len(all_user_answers),
                 }).execute()
