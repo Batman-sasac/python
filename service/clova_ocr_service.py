@@ -87,7 +87,8 @@ class CLOVAOCRService:
                 'requestId': str(uuid.uuid4()),
                 'timestamp': int(round(time.time() * 1000)),
                 'lang': 'ko',
-                'images': [{'format': file_ext, 'name': 'ocr_request'}]
+                'images': [{'format': file_ext, 'name': 'ocr_request'}],
+                'enableTableDetection': True,
             }
 
             headers = {'X-OCR-SECRET': self.clova_secret}
