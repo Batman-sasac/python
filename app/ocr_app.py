@@ -46,9 +46,24 @@ API_KEY = os.getenv("OPENAI_API_KEY")
 clova_service = CLOVAOCRService(API_KEY)
 
 
+class OcrTableBlock(BaseModel):
+    rows: List[List[str]]
+
+
+class LayoutBlock(BaseModel):
+    """OCR 필드 박스(페이지 대비 정규화 좌표). 읽기 순서와 동일."""
+    text: str
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class PageItem(BaseModel):
     original_text: str
     keywords: List[str] = []
+    tables: Optional[List[OcrTableBlock]] = None
+    layout_blocks: Optional[List[LayoutBlock]] = None
 
 
 class BlankItem(BaseModel):
@@ -249,6 +264,7 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
             blanks_list = [{"id": i, "word": w, "meaningLong": ""} for i, w in enumerate(kw_list)]
 
         user_answers = row.get("user_answers") or []
+        layout_meta = ocr_val.get("layout_meta") or {}
 
         return {
             "status": "success",
@@ -258,6 +274,9 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
                 "extractedText": extracted_text,
                 "blanks": blanks_list,
                 "user_answers": user_answers,
+                # layout_blocks·tables 포함해 복습 시 동일 좌표 UI 복원
+                "pages": pages,
+                "layout_meta": layout_meta,
             },
         }
     except Exception as e:

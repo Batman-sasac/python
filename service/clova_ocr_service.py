@@ -4,10 +4,262 @@ import time
 import json
 import re
 import os
+import statistics
 from openai import OpenAI
 import io  
 from pdf2image import convert_from_bytes 
 from pypdf import PdfReader
+
+
+def _cell_infer_text(cell):
+    """Clova General OCR 표 셀: cellTextLines[].cellWords[].inferText"""
+    lines = cell.get("cellTextLines") or []
+    parts = []
+    for line in lines:
+        for w in (line.get("cellWords") or []):
+            t = (w or {}).get("inferText", "")
+            if t:
+                parts.append(t)
+    return " ".join(parts).strip()
+
+
+def _clova_tables_to_page_tables(tables_raw):
+    """images[].tables → 프론트용 [{ 'rows': [[str, ...], ...] }, ...]"""
+    if not tables_raw:
+        return []
+    out = []
+    for tbl in tables_raw:
+        cells = tbl.get("cells") or []
+        if not cells:
+            continue
+        by_row = {}
+        for cell in cells:
+            r = int(cell.get("rowIndex", 0))
+            c = int(cell.get("columnIndex", 0))
+            text = _cell_infer_text(cell)
+            if r not in by_row:
+                by_row[r] = []
+            by_row[r].append((c, text))
+        rows = []
+        for r in sorted(by_row.keys()):
+            cols = sorted(by_row[r], key=lambda x: x[0])
+            rows.append([t for _, t in cols])
+        if rows:
+            out.append({"rows": rows})
+    return out
+
+
+def _vertices(field):
+    return (field.get("boundingPoly") or {}).get("vertices") or []
+
+
+def _field_x_center(field):
+    verts = _vertices(field)
+    if not verts:
+        return 0.0
+    xs = [float(v.get("x", 0)) for v in verts]
+    return sum(xs) / len(xs)
+
+
+def _field_y_center(field):
+    verts = _vertices(field)
+    if not verts:
+        return 0.0
+    ys = [float(v.get("y", 0)) for v in verts]
+    return sum(ys) / len(ys)
+
+
+def _field_x_range(field):
+    verts = _vertices(field)
+    xs = [float(v.get("x", 0)) for v in verts]
+    if not xs:
+        return (0.0, 0.0)
+    return (min(xs), max(xs))
+
+
+def _infer_page_width(fields, image):
+    info = image.get("convertedImageInfo") or {}
+    w = info.get("width")
+    if w is not None:
+        return float(w)
+    xs = []
+    for f in fields:
+        for v in _vertices(f):
+            xs.append(float(v.get("x", 0)))
+    return max(xs) if xs else 1000.0
+
+
+def _infer_page_height(fields, image):
+    info = image.get("convertedImageInfo") or {}
+    h = info.get("height")
+    if h is not None:
+        return float(h)
+    ys = []
+    for f in fields:
+        for v in _vertices(f):
+            ys.append(float(v.get("y", 0)))
+    return max(ys) if ys else 1.0
+
+
+def _field_bbox_norm(field, page_w, page_h):
+    """텍스트 박스를 페이지 대비 0~1 정규화 (프론트에서 그대로 배치용)."""
+    verts = _vertices(field)
+    if not verts:
+        return None
+    xs = [float(v.get("x", 0)) for v in verts]
+    ys = [float(v.get("y", 0)) for v in verts]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    pw = max(page_w, 1.0)
+    ph = max(page_h, 1.0)
+    t = (field.get("inferText") or "").strip()
+    if not t:
+        return None
+    return {
+        "text": t,
+        "x": x0 / pw,
+        "y": y0 / ph,
+        "width": (x1 - x0) / pw,
+        "height": (y1 - y0) / ph,
+    }
+
+
+def _layout_blocks_reading_order(fields, image):
+    """읽기 순서(줄 단위 Y → 줄 안 X)와 동일한 순서로 필드 박스 나열."""
+    if not fields:
+        return []
+    w = _infer_page_width(fields, image)
+    h = _infer_page_height(fields, image)
+    y_th = max(14.0, _median_field_height(fields) * 0.65)
+    lines = _cluster_into_lines(fields, y_th)
+    lines.sort(key=_line_mean_y)
+    blocks = []
+    for line in lines:
+        for f in sorted(line, key=lambda x: _field_x_range(x)[0]):
+            bb = _field_bbox_norm(f, w, h)
+            if bb:
+                blocks.append(bb)
+    return blocks
+
+
+def _median_field_height(fields):
+    hs = []
+    for f in fields:
+        verts = _vertices(f)
+        ys = [float(v.get("y", 0)) for v in verts]
+        if len(ys) >= 2:
+            hs.append(max(ys) - min(ys))
+    return statistics.median(hs) if hs else 14.0
+
+
+def _cluster_into_lines(fields, y_threshold):
+    if not fields:
+        return []
+    fields = sorted(fields, key=_field_y_center)
+    lines = []
+    current = [fields[0]]
+    anchor_y = _field_y_center(fields[0])
+    for f in fields[1:]:
+        y = _field_y_center(f)
+        if abs(y - anchor_y) > y_threshold:
+            lines.append(current)
+            current = [f]
+            anchor_y = y
+        else:
+            current.append(f)
+    lines.append(current)
+    return lines
+
+
+def _join_line_tokens(line):
+    """같은 줄에서 X순; 캡슐/박스로 잘린 단어는 가로 간격이 좁으면 이어 붙임."""
+    if not line:
+        return ""
+    ordered = sorted(line, key=lambda f: _field_x_range(f)[0])
+    parts = []
+    prev_f = None
+    for f in ordered:
+        t = (f.get("inferText") or "").strip()
+        if not t:
+            continue
+        if prev_f is None:
+            parts.append(t)
+            prev_f = f
+            continue
+        p0, p1 = _field_x_range(prev_f)
+        c0, c1 = _field_x_range(f)
+        gap = c0 - p1
+        pw = max(p1 - p0, 1.0)
+        est = max(pw / max(len(parts[-1]), 1), 4.0)
+        if gap < est * 1.6:
+            parts[-1] += t
+        else:
+            parts.append(t)
+        prev_f = f
+    return " ".join(parts)
+
+
+def _line_mean_y(line):
+    if not line:
+        return 0.0
+    return sum(_field_y_center(f) for f in line) / len(line)
+
+
+def _should_use_two_columns(fields, width):
+    if len(fields) < 8:
+        return False
+    mid = width * 0.5
+    left_n = sum(1 for f in fields if _field_x_center(f) < mid)
+    right_n = len(fields) - left_n
+    if left_n < 3 or right_n < 3:
+        return False
+    if left_n / len(fields) > 0.72 or right_n / len(fields) > 0.72:
+        return False
+    ratio = min(left_n, right_n) / max(left_n, right_n)
+    return ratio >= 0.12
+
+
+def _fields_single_column(fields, y_threshold):
+    lines = _cluster_into_lines(fields, y_threshold)
+    return "\n".join(_join_line_tokens(line) for line in lines)
+
+
+def _fields_to_page_text(fields, image):
+    """기본: 읽기 순서(줄 단위 Y → 줄 안 X). 표/비표·구석 표 모두 전 페이지 2단으로 가정하지 않음.
+    전형적 2단 단어장만 맞추려면 환경변수 OCR_TWO_COLUMN_LAYOUT=1 로 2단 보정을 켤 수 있음."""
+    if not fields:
+        return ""
+    width = _infer_page_width(fields, image)
+    y_th = max(14.0, _median_field_height(fields) * 0.65)
+
+    use_two = os.getenv("OCR_TWO_COLUMN_LAYOUT", "").lower() in ("1", "true", "yes")
+    if not use_two or not _should_use_two_columns(fields, width):
+        return _fields_single_column(fields, y_th)
+
+    mid = width * 0.5
+    left = [f for f in fields if _field_x_center(f) < mid]
+    right = [f for f in fields if _field_x_center(f) >= mid]
+    if not left or not right:
+        return _fields_single_column(fields, y_th)
+
+    left_lines = _cluster_into_lines(left, y_th)
+    right_lines = _cluster_into_lines(right, y_th)
+    left_lines.sort(key=_line_mean_y)
+    right_lines.sort(key=_line_mean_y)
+
+    n = max(len(left_lines), len(right_lines))
+    out_lines = []
+    for i in range(n):
+        lt = _join_line_tokens(left_lines[i]) if i < len(left_lines) else ""
+        rt = _join_line_tokens(right_lines[i]) if i < len(right_lines) else ""
+        if lt and rt:
+            out_lines.append(f"{lt}  |  {rt}")
+        elif lt:
+            out_lines.append(lt)
+        else:
+            out_lines.append(rt)
+    return "\n".join(out_lines)
+
 
 class CLOVAOCRService:
     def __init__(self, api_key):
@@ -62,7 +314,9 @@ class CLOVAOCRService:
         file_bytes: 원본 또는 ocr_app에서 crop된 잘린 이미지 bytes (좌표 적용 후 넘어옴).
         """
         pages_text = []
-        
+        pages_tables = []
+        pages_layout = []
+
         try:
             # 파일 확장자 확인
             raw_ext = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
@@ -88,7 +342,7 @@ class CLOVAOCRService:
                 'timestamp': int(round(time.time() * 1000)),
                 'lang': 'ko',
                 'images': [{'format': file_ext, 'name': 'ocr_request'}],
-                'enableTableDetection': True,
+                'enableTableDetection': True
             }
 
             headers = {'X-OCR-SECRET': self.clova_secret}
@@ -110,49 +364,19 @@ class CLOVAOCRService:
                 
                 # [핵심] 클로바는 PDF의 각 페이지를 'images' 리스트의 개별 요소로 반환합니다.
                 for image in result.get('images', []):
+                    pages_tables.append(_clova_tables_to_page_tables(image.get('tables')))
                     fields = image.get('fields', [])
                     if not fields:
                         pages_text.append("")
+                        pages_layout.append([])
                         continue
 
-                    # --- [정렬 로직 시작] ---
-                    # 1. 모든 필드를 Y좌표 기준으로 먼저 정렬 (위 -> 아래)
-                    fields.sort(key=lambda x: x['boundingPoly']['vertices'][0]['y'])
-
-                    lines = []
-                    current_line = []
-                    # 첫 줄의 기준 Y좌표 설정
-                    last_y = fields[0]['boundingPoly']['vertices'][0]['y']
-
-                    for field in fields:
-                        current_y = field['boundingPoly']['vertices'][0]['y']
-                        
-                        # Y좌표 차이가 15보다 크면 새로운 줄로 간주
-                        if abs(current_y - last_y) > 15:
-                            # 이전 줄이 완성되었으므로 X좌표로 정렬 (왼쪽 -> 오른쪽)
-                            current_line.sort(key=lambda x: x['boundingPoly']['vertices'][0]['x'])
-                            lines.append(current_line)
-                            
-                            current_line = [field]
-                            last_y = current_y
-                        else:
-                            current_line.append(field)
-                    
-                    # 마지막 줄 처리
-                    current_line.sort(key=lambda x: x['boundingPoly']['vertices'][0]['x'])
-                    lines.append(current_line)
-
-                    # 2. 정렬된 줄들을 하나의 텍스트로 합치기
-                    full_page_text = ""
-                    for line in lines:
-                        line_text = " ".join([f.get('inferText', '') for f in line])
-                        full_page_text += line_text + "\n"
-
+                    full_page_text = _fields_to_page_text(fields, image)
                     pages_text.append(full_page_text.strip())
+                    pages_layout.append(_layout_blocks_reading_order(fields, image))
                     print(f"✅ {len(pages_text)}페이지 추출 및 정렬 완료")
-                    # --- [정렬 로직 끝] ---
 
-                return pages_text
+                return pages_text, pages_tables, pages_layout
             else:
                 print(f"❌ Clova API 에러: {response.status_code}, {response.text}")
                 return None
@@ -168,10 +392,14 @@ class CLOVAOCRService:
         """
         total_start = time.time()
         # 1. OCR 텍스트 추출 (전달받은 이미지 = 원본 또는 잘린 영역만)
-        all_pages_text = self.extract_text_with_clova(file_bytes, filename)
-        
+        extracted = self.extract_text_with_clova(file_bytes, filename)
 
         gpt_start = time.time()
+
+        if extracted is None:
+            return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
+
+        all_pages_text, all_pages_tables, all_pages_layout = extracted
 
         if not all_pages_text:
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
@@ -235,8 +463,12 @@ class CLOVAOCRService:
                 {
                     "original_text": text,
                     "keywords": keywords,
+                    "tables": tables,
+                    "layout_blocks": layout,
                 }
-                for text, keywords in zip(all_pages_text, all_keywords)
+                for text, keywords, tables, layout in zip(
+                    all_pages_text, all_keywords, all_pages_tables, all_pages_layout
+                )
             ],
             "page_count": page_count,
             "total_duration": total_duration,
