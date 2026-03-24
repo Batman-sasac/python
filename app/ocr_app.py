@@ -232,7 +232,7 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
     try:
         res = (
             supabase.table("ocr_data")
-            .select("id, subject_name, study_name, ocr_text, user_answers")
+            .select("id, subject_name, study_name, ocr_text, user_answers, image_url")
             .eq("id", quiz_id)
             .eq("user_email", email)
             .single()
@@ -274,6 +274,7 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
                 "extractedText": extracted_text,
                 "blanks": blanks_list,
                 "user_answers": user_answers,
+                "image_url": row.get("image_url"),
                 # layout_blocks·tables 포함해 복습 시 동일 좌표 UI 복원
                 "pages": pages,
                 "layout_meta": layout_meta,

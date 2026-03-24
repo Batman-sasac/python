@@ -5,10 +5,13 @@ import json
 import re
 import os
 import statistics
+import logging
 from openai import OpenAI
 import io  
 from pdf2image import convert_from_bytes 
 from pypdf import PdfReader
+
+logger = logging.getLogger(__name__)
 
 
 def _cell_infer_text(cell):
@@ -318,6 +321,14 @@ class CLOVAOCRService:
         pages_layout = []
 
         try:
+            if not self.clova_url or not self.clova_secret:
+                logger.error(
+                    "CLOVA OCR 환경변수가 설정되지 않았습니다. CLOVA_OCR_URL=%s, CLOVA_OCR_SECRET=%s",
+                    bool(self.clova_url),
+                    bool(self.clova_secret),
+                )
+                return None
+
             # 파일 확장자 확인
             raw_ext = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
             
@@ -350,17 +361,53 @@ class CLOVAOCRService:
             
             files = [('file', (filename, file_bytes, 'application/octet-stream'))]
 
+            # 다중 페이지 PDF는 처리 시간이 길어지므로 read timeout을 여유 있게 둔다.
+            # 기본값 300초, 환경변수 CLOVA_OCR_READ_TIMEOUT 으로 조정 가능.
+            read_timeout = int(os.getenv("CLOVA_OCR_READ_TIMEOUT", "300"))
+            connect_timeout = int(os.getenv("CLOVA_OCR_CONNECT_TIMEOUT", "10"))
+            timeout_cfg = (connect_timeout, read_timeout)
+            started_at = time.time()
+
             # 클로바 API 호출
-            response = requests.post(
-                self.clova_url, 
-                headers=headers, 
-                data=payload, 
-                files=files,
-                timeout=180
-            )
+            try:
+                response = requests.post(
+                    self.clova_url, 
+                    headers=headers, 
+                    data=payload, 
+                    files=files,
+                    timeout=timeout_cfg
+                )
+            except requests.Timeout:
+                elapsed = time.time() - started_at
+                logger.error(
+                    "Clova API 타임아웃. filename=%s, requestId=%s, elapsed=%.2fs, timeout=%s",
+                    filename,
+                    request_json.get("requestId"),
+                    elapsed,
+                    timeout_cfg,
+                )
+                return None
+            except requests.RequestException as e:
+                elapsed = time.time() - started_at
+                logger.exception(
+                    "Clova API 요청 실패. filename=%s, requestId=%s, elapsed=%.2fs, error=%s",
+                    filename,
+                    request_json.get("requestId"),
+                    elapsed,
+                    e,
+                )
+                return None
             
             if response.status_code == 200:
-                result = response.json()
+                try:
+                    result = response.json()
+                except Exception:
+                    logger.error(
+                        "CLOVA OCR 응답 JSON 파싱 실패. status=%s, body=%s",
+                        response.status_code,
+                        (response.text or "")[:2000],
+                    )
+                    return None
                 
                 # [핵심] 클로바는 PDF의 각 페이지를 'images' 리스트의 개별 요소로 반환합니다.
                 for image in result.get('images', []):
@@ -376,12 +423,26 @@ class CLOVAOCRService:
                     pages_layout.append(_layout_blocks_reading_order(fields, image))
                     print(f"✅ {len(pages_text)}페이지 추출 및 정렬 완료")
 
+                if not result.get("images"):
+                    logger.warning(
+                        "CLOVA OCR 성공 응답이지만 images가 비어 있습니다. filename=%s, requestId=%s",
+                        filename,
+                        request_json.get("requestId"),
+                    )
                 return pages_text, pages_tables, pages_layout
             else:
-                print(f"❌ Clova API 에러: {response.status_code}, {response.text}")
+                elapsed = time.time() - started_at
+                logger.error(
+                    "Clova API 에러. status=%s, filename=%s, requestId=%s, elapsed=%.2fs, body=%s",
+                    response.status_code,
+                    filename,
+                    request_json.get("requestId"),
+                    elapsed,
+                    (response.text or "")[:2000],
+                )
                 return None
         except Exception as e:
-            print(f"❌ OCR 처리 중 예외 발생: {e}")
+            logger.exception("OCR 처리 중 예외 발생. filename=%s, error=%s", filename, e)
             return None
 
 

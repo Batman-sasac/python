@@ -242,7 +242,6 @@ def check_and_send_reminders():
             diag = supabase.table("users").select("email, is_notify, remind_time").limit(30).execute()
             diag_rows = diag.data or []
             diag_ok = True
-            print(f"[알림] [진단] 필터 없이 users 조회: {len(diag_rows)}건")
             for i, row in enumerate(diag_rows[:10], 1):
                 inot = row.get("is_notify")
                 rt = row.get("remind_time")
@@ -301,7 +300,7 @@ def check_and_send_reminders():
         else:
             sample = rows[0].get("remind_time")
             print(f"[알림] DB 조회 {len(rows)}명 | 비교 기준 now={now} (KST), time_window={time_window}분")
-            print(f"[알림] remind_time 샘플(1번째): raw={sample!r} type={type(sample).__name__} → norm={_normalize_remind_time(sample)!r}")
+
             # 전체 행의 remind_time 로그 (몇 명 없으면 전부 출력)
             for i, u in enumerate(rows[:20], 1):
                 r = u.get("remind_time")
@@ -328,7 +327,6 @@ def check_and_send_reminders():
         targets = unique_targets
 
         # 발송 대상 (오늘 아직 안 보낸 유저만. 시간 변경 시 remind_sent_at 리셋되어 새 시간에 발송 가능)
-        print(f"[알림] ---------- 결과: {len(targets)}명 알림 대상 ----------")
         for u in targets:
             email = u.get("email") or "-"
             token_val = u.get("fcm_token") or ""
@@ -336,9 +334,7 @@ def check_and_send_reminders():
             print(f"  - 대상: {email}, 푸시 토큰: {token_display}")
 
         if not targets:
-            print(f"[알림] 발송 대상 0명 (remind_time={now} 매칭 없음)" + ("" if simulate else " 또는 푸시 토큰 없음"))
         else:
-            print(f"[알림] 발송 대상 {len(targets)}명 → 발송 처리 시작")
 
         for user in targets:
             email = user.get("email")
