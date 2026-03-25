@@ -84,7 +84,6 @@ def send_push_notification(token: str, title: str, body: str) -> bool:
     if not _is_expo_push_token(token):
         print(f"[Push] ❌ ExponentPushToken이 아님 — 발송 스킵 | snippet={_token_log_snippet(token)}")
         return False
-    print(f"[Push] Expo Push API로 발송 | snippet={_token_log_snippet(token)}")
     return send_expo_notification(token, title, body)
 
 
@@ -227,31 +226,10 @@ def check_and_send_reminders():
     try:
         simulate = is_notification_simulation()
         # 시뮬레이션: 현재 시간 ±5분 구간 매칭, fcm_token 없어도 대상 포함
-        time_window = 5 
+        time_window = 5
 
-        print(f"[알림] ========== 스케줄 실행 (KST {now} / today={today}) ==========")
         if simulate:
-            print(f"[알림] 🧪 시뮬레이션 모드 — 현재 시각 {now} (KST), {time_window}분 구간 매칭 (DB 갱신 없음)")
-        else:
-            print(f"[알림] 매 분 체크 중 — 현재 시각 {now} (KST)")
-
-        # [진단] 필터 없이 users 일부 조회 (0명일 때 원인 파악용)
-        diag_rows = []
-        diag_ok = False
-        try:
-            diag = supabase.table("users").select("email, is_notify, remind_time").limit(30).execute()
-            diag_rows = diag.data or []
-            diag_ok = True
-            for i, row in enumerate(diag_rows[:10], 1):
-                inot = row.get("is_notify")
-                rt = row.get("remind_time")
-                print(f"[알림] [진단]   #{i} is_notify={inot!r} (type={type(inot).__name__}) remind_time={rt!r} (type={type(rt).__name__ if rt is not None else 'None'})")
-            if len(diag_rows) > 10:
-                print(f"[알림] [진단]   ... 외 {len(diag_rows) - 10}건")
-        except Exception as e:
-            print(f"[알림] [진단] 조회 실패: {e}")
-        if diag_ok and not diag_rows:
-            print(f"[알림] [진단] users 테이블 0건 → RLS/권한 또는 테이블명 확인. 서비스 역할 키(SUPABASE_SERVICE_ROLE_KEY) 필요할 수 있음.")
+            print(f"[알림] 🧪 시뮬레이션 (KST {now}, today={today}, ±{time_window}분)")
 
         def _is_notify_on(val) -> bool:
             if val is None:
@@ -296,24 +274,15 @@ def check_and_send_reminders():
                         raise
 
         if not rows:
-            print(f"[알림] DB 조회 0명 (remind_time 있는 유저 없음)" if simulate else f"[알림] DB 조회 0명 (is_notify=True 유저 없음)")
-        else:
-            sample = rows[0].get("remind_time")
-            print(f"[알림] DB 조회 {len(rows)}명 | 비교 기준 now={now} (KST), time_window={time_window}분")
+            if simulate:
+                print("[알림] DB 조회 0명 (remind_time 있는 유저 없음)")
+        elif simulate:
+            print(f"[알림] DB 후보 {len(rows)}명 (now={now} KST, ±{time_window}분)")
 
-            # 전체 행의 remind_time 로그 (몇 명 없으면 전부 출력)
-            for i, u in enumerate(rows[:20], 1):
-                r = u.get("remind_time")
-                n = _normalize_remind_time(r)
-                print(f"[알림]   #{i} email={u.get('email','')} remind_time raw={r!r} → norm={n!r}")
-            if len(rows) > 20:
-                print(f"[알림]   ... 외 {len(rows) - 20}명")
-
-        print(f"[알림] 시간 필터 적용 중 (now={now}, 구간={time_window}분)...")
         if simulate:
             targets = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=time_window)
         else:
-            rows = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=0)
+            rows = _filter_by_remind_time(rows, now, now_with_sec, debug_log=False, time_window_minutes=0)
             targets = [u for u in rows if _sent_before_today(u.get("remind_sent_at"), today)] if use_sent else rows
 
         # 같은 이메일 중복 제거 — 워커 다중 또는 DB 중복 시 한 유저당 한 번만 발송
@@ -326,24 +295,10 @@ def check_and_send_reminders():
                 unique_targets.append(u)
         targets = unique_targets
 
-        # 발송 대상 (오늘 아직 안 보낸 유저만. 시간 변경 시 remind_sent_at 리셋되어 새 시간에 발송 가능)
-        for u in targets:
-            email = u.get("email") or "-"
-            token_val = u.get("fcm_token") or ""
-            token_display = (f"{token_val[:12]}...{token_val[-8:]}" if len(token_val) > 24 else token_val) or "(없음)"
-            print(f"  - 대상: {email}, 푸시 토큰: {token_display}")
-
-        if not targets:
-        else:
-
         for user in targets:
             email = user.get("email")
             token = user.get("fcm_token")
             if simulate:
-                if token:
-                    print(f"🧪 [시뮬레이션] 알림 발송 (실제 미발송): {email}")
-                else:
-                    print(f"🧪 [시뮬레이션] 알림 대상이지만 푸시 토큰 없음 — 스킵: {email}")
                 continue
             if not token:
                 continue
@@ -357,14 +312,10 @@ def check_and_send_reminders():
                 if use_sent and _remind_sent_at_available is not False:
                     try:
                         supabase.table("users").update({"remind_sent_at": today}).eq("email", email).execute()
-                        print(f"🔔 알림 발송 및 오늘 발송 기록 완료: {email}")
                     except Exception as e:
                         if _is_remind_sent_at_missing_error(e):
                             _remind_sent_at_available = False
                             print("⚠️ users.remind_sent_at 컬럼 없음 — 발송 기록 생략. 컬럼 추가 권장.")
-                        print(f"🔔 알림 발송 완료: {email}")
-                else:
-                    print(f"🔔 알림 발송 완료: {email}")
             else:
                 print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [Expo] 로그 참고")
 
