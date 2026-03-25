@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.security_app import get_current_user
+from service.reward_service import grant_streak_reward_if_eligible
 
 app = APIRouter(prefix="/study", tags=["study"])
 templates = Jinja2Templates(directory="templates")
@@ -146,11 +147,19 @@ async def grade_quiz(
                 }).execute()
             )
 
+        _, streak_days, streak_bonus, pts_after_streak = await asyncio.to_thread(
+            grant_streak_reward_if_eligible, email
+        )
+        if pts_after_streak is not None:
+            new_points = pts_after_streak
+
         return {
             "status": "success",
             "score": grade_cnt, # 정답 수
             "reward_given": grade_cnt * 2 if grade_cnt > 0 else 0,
-            "new_points": new_points # 누적 포인트
+            "new_points": new_points, # 누적 포인트
+            "streak_bonus": streak_bonus,
+            "consecutive_streak_days": streak_days,
         }
 
     except Exception as e:
@@ -271,11 +280,19 @@ async def review_study_reward(request: Request, email: str = Depends(get_current
             lambda: supabase.table("users").update({"points": new_total_points}).eq("email", email).execute()
         )
 
+        _, streak_days, streak_bonus, pts_after_streak = await asyncio.to_thread(
+            grant_streak_reward_if_eligible, email
+        )
+        if pts_after_streak is not None:
+            new_total_points = pts_after_streak
+
         return {
             "status": "success",
             "score": score, # 정답 수
             "reward_given": total_reward, # 리워드 수
-            "new_points": new_total_points # 누적 포인트
+            "new_points": new_total_points, # 누적 포인트
+            "streak_bonus": streak_bonus,
+            "consecutive_streak_days": streak_days,
         }
     except Exception as e:
         print(f"오류: {e}")

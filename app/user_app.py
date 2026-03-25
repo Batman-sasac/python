@@ -10,7 +10,9 @@ from core.database import supabase
 from pydantic import BaseModel
 from app.security_app import create_jwt_token, get_current_user
 import jwt
-from datetime import datetime, timedelta, date
+from datetime import datetime, date
+
+from service.reward_service import compute_consecutive_study_days
 from fastapi.responses import JSONResponse
 from fastapi import Form
 
@@ -74,8 +76,6 @@ async def set_nickname_mobile(
 async def get_user_stats(email: str = Depends(get_current_user)):
     """총 학습 횟수, 총 학습일, 연속 학습일, 한달 목표 반환 (study_logs.completed_at 기준)"""
     try:
-        today = date.today()
-
         # 1. 총 학습 횟수: study_logs 전체 건수 (count만 조회)
         total_res = supabase.table("study_logs") \
             .select("id", count="exact") \
@@ -85,26 +85,8 @@ async def get_user_stats(email: str = Depends(get_current_user)):
         if total_learning_count is None:
             total_learning_count = len(total_res.data or [])
 
-        # 2. 총 학습일·연속 학습일: study_logs.completed_at 기준 distinct 날짜 계산
-        logs_res = supabase.table("study_logs") \
-            .select("completed_at") \
-            .eq("user_email", email) \
-            .execute()
-        study_dates = set()
-        for row in (logs_res.data or []):
-            completed = row.get("completed_at")
-            if completed:
-                if isinstance(completed, str):
-                    study_dates.add(completed[:10])  # YYYY-MM-DD
-                else:
-                    study_dates.add(str(completed)[:10])
-        consecutive_days = 0  # 연속 학습일: 오늘부터 역순으로 연속된 일수
-        check = today
-        check_str = check.isoformat()
-        while check_str in study_dates:
-            consecutive_days += 1
-            check -= timedelta(days=1)
-            check_str = check.isoformat()
+        # 2. 연속 학습일: study_logs.completed_at 기준 (KST, reward_service와 동일 로직)
+        consecutive_days = compute_consecutive_study_days(email)
 
         # 3. 한달 목표: users.monthly_goal
         user_res = supabase.table("users") \
@@ -116,10 +98,6 @@ async def get_user_stats(email: str = Depends(get_current_user)):
         if user_res.data and user_res.data.get("monthly_goal") is not None:
             monthly_goal = int(user_res.data["monthly_goal"])
 
-
-        print(f"total_learning_count: {total_learning_count}")
-        print(f"consecutive_days: {consecutive_days}")
-        print(f"monthly_goal: {user_res.data}")
 
         return {
             "status": "success",

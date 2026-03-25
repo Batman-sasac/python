@@ -12,6 +12,8 @@ app = APIRouter(tags=["Reward"])
 REASON_ATTENDANCE = "출석체크"
 REWARD_AMOUNT = 10
 
+# 연속 학습일 보너스(2일 이상): service.reward_service — study_logs 저장 후 study_app에서 지급
+
 
 def _auto_attendance_check(email: str) -> Tuple[bool, int]:
     """
