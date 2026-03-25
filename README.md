@@ -4,6 +4,8 @@
 이미지 OCR로 학습지를 인식하고, 채점·복습·리워드(포인트)·주간 통계·푸시 알림 등을 제공하는 **FastAPI 기반 REST API**로 구성되어 있습니다.  
 클라이언트(모바일/웹)는 이 서버의 API를 호출하여 로그인, 학습 데이터 저장, 통계 조회, 알림 설정 등을 수행합니다.
 
+**OCR 엔진 선정**: 여러 OCR 서비스·모델을 실제 학습지 이미지로 비교해 본 결과, **표와 체크박스**가 함께 있는 영역에서 **네이버 클로바 OCR**이 상대적으로 인식이 가장 안정적이어서, 백엔드 OCR 연동으로 채택했습니다.
+
 ## 기술 스택
 
 - **Framework**: FastAPI, APIRouter 기반 모듈화
@@ -55,11 +57,11 @@
 - **인증/사용자**
   - JWT 기반 인증 (`app/security_app.py`)  
   - 소셜 로그인(카카오/네이버/애플) 후 이메일/닉네임 저장  
-  - 닉네임 설정 및 업데이트 (`/set-nickname`)  
+  - 닉네임 설정 및 업데이트 (`POST /auth/set-nickname`)  
   - 사용자 학습 통계, 홈 대시보드 통계 제공
 
 - **OCR & 학습 데이터**
-  - 이미지 업로드 후 클로바 OCR 호출 (`/ocr/ocr`)  
+  - 이미지 업로드 후 클로바 OCR 호출 (`POST /ocr`)  
   - 선택 영역(crop) OCR 지원  
   - OCR 결과(원문, 키워드, 빈칸, 퀴즈 HTML)와 정답/사용자 답안을 `ocr_data` 테이블에 저장  
   - OCR 사용량(페이지 수) 한도 관리 및 남은 횟수 안내
@@ -85,6 +87,14 @@
   - Expo Push API를 사용해 iOS 기기에 복습 알림 전송  
   - `NOTIFICATION_SIMULATE` 환경 변수로 시뮬레이션 모드 지원(실제 DB 갱신/발송 없이 로직만 검증)
 
+## 추가·보강된 기능
+
+- **연속 학습 보너스**: 일정 일수 이상 연속으로 학습 기록이 있을 때, 초기 채점(`POST /study/grade`)·복습 채점(`POST /study/review-study`) 직후 자동으로 추가 포인트를 지급합니다. 응답에 `streak_bonus`, `consecutive_streak_days` 등이 포함됩니다.
+- **페이지 단위 채점 통계**: 초기 채점 요청에서 페이지별 정답 수·문항 수를 함께 보내 기록할 수 있습니다(`page_correct_counts`, `page_question_counts`).
+- **OCR 예상 소요 시간**: `POST /ocr/estimate`로 업로드 파일 기준 예상 페이지·처리 시간을 안내합니다.
+- **학습 신고**: `POST /reports/submitted-report`로 신고·피드백을 접수합니다.
+- **Expo 푸시 토큰**: `POST /firebase/user/update-fcm-token`에 `ExponentPushToken[...]` 형식 토큰을 등록합니다.
+
 ## API 엔드포인트 정리
 
 ### 공통
@@ -97,9 +107,9 @@
 | Method | Path                         | 설명                           | 비고 |
 |--------|-----------------------------|--------------------------------|------|
 | GET    | `/config`                   | 프론트에서 사용하는 OAuth 설정 조회 | 공개 |
-| POST   | `/set-nickname`             | 닉네임 설정/변경               | 인증 |
-| GET    | `/user/stats`               | 총 학습 횟수/연속 학습일/월 목표 | 인증 |
-| GET    | `/home/stats`               | 현재 포인트, 월 목표, 이번 달 학습 횟수 | 인증 |
+| POST   | `/auth/set-nickname`        | 닉네임 설정/변경               | 인증 |
+| GET    | `/auth/user/stats`          | 총 학습 횟수/연속 학습일/월 목표 | 인증 |
+| GET    | `/auth/home/stats`          | 현재 포인트, 월 목표, 이번 달 학습 횟수 | 인증 |
 | GET    | `/auth/kakao/mobile`        | 카카오 로그인 콜백 (모바일용)  | 공개 |
 | POST   | `/auth/kakao/mobile`        | 카카오 토큰 → 앱용 JWT 발급    | 공개 |
 | GET    | `/auth/naver/mobile`        | 네이버 로그인 콜백 (모바일용)  | 공개 |
@@ -122,8 +132,8 @@
 | Method | Path                          | 설명                                      |
 |--------|------------------------------|-------------------------------------------|
 | POST   | `/study/grade`               | 최초 학습 채점 및 학습 로그/리워드 적립  |
-| GET    | `/review_study/{quiz_id}`    | 복습 HTML 화면 (서버 렌더링)             |
-| POST   | `/review-study`              | 복습 채점, 리워드/포인트 갱신            |
+| GET    | `/study/review_study/{quiz_id}` | 복습 HTML 화면 (서버 렌더링)          |
+| POST   | `/study/review-study`        | 복습 채점, 리워드/포인트 갱신            |
 | GET    | `/study/hint/{quiz_id}`      | 학습용 힌트 조회                          |
 
 ### 리워드/출석 (`reward_app.py`)
@@ -137,15 +147,15 @@
 
 | Method | Path                   | 설명                                         |
 |--------|------------------------|----------------------------------------------|
-| POST   | `/set-goal`            | 월 학습 목표(횟수) 설정                      |
-| GET    | `/stats/weekly-growth` | 최근 5주간 주간 성장 점수(정답률×출석률) 조회 |
-| GET    | `/learning-stats`      | 이번 달 학습 횟수 vs 목표 횟수 비교          |
+| POST   | `/cycle/set-goal`            | 월 학습 목표(횟수) 설정                      |
+| GET    | `/cycle/stats/weekly-growth` | 최근 5주간 주간 성장 점수(정답률×출석률) 조회 |
+| GET    | `/cycle/learning-stats`      | 이번 달 학습 횟수 vs 목표 횟수 비교          |
 
 ### 알림/FCM (`notification_app.py`, `firebase_app.py`)
 
 | Method | Path                          | 설명                             |
 |--------|------------------------------|----------------------------------|
-| POST   | `/user/update-fcm-token`     | 사용자 FCM/Expo 토큰 업데이트    |
+| POST   | `/firebase/user/update-fcm-token` | Expo 푸시 토큰 등록 (`ExponentPushToken[...]`) |
 | POST   | `/notification-push/update`  | 알림 설정 및 리마인드 시간 업데이트 |
 | GET    | `/notification-push/me`      | 내 알림 설정/리마인드 시간 조회  |
 
@@ -153,7 +163,7 @@
 
 | Method | Path               | 설명                     |
 |--------|--------------------|--------------------------|
-| POST   | `/submitted-report`| 학습 리포트/피드백 제출  |
+| POST   | `/reports/submitted-report` | 학습 리포트/피드백·신고 제출  |
 
 ## 실행 방법
 
@@ -211,7 +221,8 @@ Authorization: Bearer <JWT_TOKEN>
 # 📚 AI Smart Study Assistant: Scan & Learn
 > **문서 스캔부터 핵심 단어 추출, 맞춤형 퀴즈와 리워드까지 하나로 연결되는 지능형 학습 플랫폼**
 
-본 프로젝트는 **Naver Clova OCR**과 **OpenAI GPT-4**를 결합하여 학습자의 교재를 디지털 데이터로 변환하고, 자기주도 학습을 돕는 다양한 기능을 제공하는 고성능 백엔드 시스템입니다.
+본 프로젝트는 **네이버 클로바 OCR**과 **OpenAI GPT API**를 결합하여 학습자의 교재를 디지털 데이터로 변환하고, 자기주도 학습을 돕는 기능을 제공하는 백엔드 시스템입니다.  
+**OCR**은 여러 서비스·모델을 학습지 이미지로 비교한 뒤, **표·체크박스**가 포함된 영역에서 인식이 상대적으로 가장 안정적인 **네이버 클로바 OCR**을 사용합니다.
 
 ---
 
@@ -219,54 +230,67 @@ Authorization: Bearer <JWT_TOKEN>
 
 | Category | Tech Stack | Details |
 | :--- | :--- | :--- |
-| **Language** | **Python 3.14+** | 최신 문법 및 고성능 비동기 처리 활용 |
-| **Framework** | **FastAPI** | 비동기 기반의 빠르고 현대적인 API 프레임워크 |
-| **AI/ML** | **Naver Clova OCR, OpenAI GPT API** | 문서 텍스트 추출 및 지능형 단어 선별/문제 생성 |
-| **Database** | **PostgreSQL, Supabase** | 강력한 관계형 DB 및 효율적인 ORM 관리 |
-| **Auth** | **Kakao OAuth 2.0** | 카카오 소셜 로그인을 통한 간편한 인증 체계 |
-| **Testing** | **Pytest** | 견고한 로직 검증을 위한 자동화 테스트 프레임워크 |
+| **Language** | **Python 3** | FastAPI 기반 REST API |
+| **Framework** | **FastAPI** | APIRouter 모듈 구성, JWT 인증 |
+| **AI/ML** | **Naver Clova OCR, OpenAI API** | 문서 텍스트 추출, 키워드·퀴즈 생성 |
+| **Database** | **PostgreSQL (Supabase)** | 사용자·학습·리워드 데이터 |
+| **Auth** | **OAuth 2.0 (Kakao / Naver / Apple)** | 모바일 소셜 로그인 및 JWT 발급 |
+| **Push** | **Expo Push API** | 복습 알림 (iOS `ExponentPushToken`) |
+| **Scheduler** | **APScheduler** | 복습 알림 발송 스케줄 |
+| **Testing** | **Pytest** | (선택) 자동화 테스트 |
 
 ---
 
 ## 🌟 핵심 기능 (Key Features)
 
 ### 1. 지능형 문서 분석 (AI OCR & NLP)
-* **Smart Scan**: `Naver Clova OCR`을 통해 고해상도 이미지 및 PDF에서 텍스트를 정교하게 추출합니다.
-* **Keyword Extraction**: GPT API를 활용해 전체 텍스트 중 학습에 필요한 **핵심 단어**만 선별적으로 추출합니다.
-* **Wait Time Estimation**: 대용량 파일 분석 시, PDF 페이지 수와 이미지 개수를 계산하여 사용자에게 **실시간 예상 소요 시간**을 안내합니다.
+* **Smart Scan**: 네이버 클로바 OCR로 이미지·PDF에서 텍스트를 추출합니다. (표·체크박스 인식 품질을 기준으로 엔진을 선정했습니다.)
+* **Keyword Extraction**: GPT API로 학습에 필요한 **핵심 단어**를 선별합니다.
+* **Wait Time Estimation**: `POST /ocr/estimate`로 업로드 파일 기준 **예상 소요 시간**을 안내합니다.
+* **Crop OCR**: 선택 영역만 잘라 OCR할 수 있습니다.
 
 ### 2. 맞춤형 학습 도구 (Study System)
-* **Blank Quiz**: 추출된 단어를 기반으로 빈칸 채우기 문제를 자동 생성합니다.
-* **Multi-Level Hints**: 학습 수준에 따른 3단계 힌트 시스템을 제공합니다.
-  * **초성 힌트**: 단어의 자음만 노출 (예: `ㄱㅁㄴ`)
-  * **앞글자 힌트**: 단어의 앞부분 노출 (예: `제미...`)
-  * **뒷글자 힌트**: 단어의 뒷부분 노출 (예: `...미니`)
+* **Blank Quiz**: 추출된 단어 기반 빈칸 문제·퀴즈 HTML 생성.
+* **Multi-Level Hints**: 3단계 힌트 (`app/hint/`, `GET /study/hint/{quiz_id}`).
+  * **초성 힌트** · **앞글자 힌트** · **뒷글자 힌트**
+* **페이지 단위 통계**: 초기 채점 시 페이지별 정답·문항 수를 기록할 수 있습니다.
 
 ### 3. 게임화 리워드 시스템 (Gamification)
-* **Point Rewards**: 학습 동기 부여를 위해 다양한 활동에 리워드를 지급합니다.
-  * **출석 체크**: 매일 접속 시 리워드 제공.
-  * **학습 달성**: 문제 풀이 세션 완료 시 리워드 제공.
-  * **복습 보너스**: 복습 시 맞춘 단어 개수에 따라 추가 리워드 제공.
+* **출석·학습·복습 리워드**: 출석 체크, 채점 완료, 복습 시 포인트 지급.
+* **연속 학습 보너스**: 연속 학습일 조건 충족 시 추가 포인트 자동 지급.
+* **리더보드**: 포인트 상위 사용자 조회.
 
 ### 4. 학습 통계 및 분석 (Analytics)
-* **Weekly Report**: 주간 **출석률**과 **정답률**을 결합한 성취도 데이터 반환.
-* **Monthly Data**: 월간 복습 횟수 및 누적 학습 데이터를 분석하여 반환.
+* **Weekly Growth**: 최근 5주간 정답률·출석률 기반 성장 지표 (`/cycle/stats/weekly-growth`).
+* **Monthly Goal**: 이번 달 학습 횟수 vs 목표 (`/cycle/learning-stats`).
+
+### 5. 알림·신고·연동 (Notifications & Reports)
+* **복습 알림**: 알림 on/off·시간 설정, Expo 푸시 토큰 등록 (`/firebase/user/update-fcm-token`).
+* **신고 접수**: `POST /reports/submitted-report`로 피드백·신고 제출.
 
 ---
 
 ## 📂 프로젝트 구조 (Project Structure)
 
 ```text
-C:\bat_python
+.
+├── main.py                 # FastAPI 앱, 라우터 등록, APScheduler
 ├── app/
-│   ├── ocr_app.py           # Clova OCR & GPT 분석 엔드포인트
-│   ├── study_app.py         # 빈칸 문제 생성 및 힌트 로직
-│   ├── reward_app.py        # 출석 및 학습 리워드 관리
-│   ├── weekly_app.py        # 주간/월간 통계 데이터 가공
-│   └── user_app.py          # 카카오 로그인 및 사용자 관리
+│   ├── ocr_app.py          # OCR, 사용량, 학습 목록
+│   ├── study_app.py        # 채점, 복습 HTML, 학습 로그
+│   ├── user_app.py         # /auth 닉네임·통계
+│   ├── auth/               # 카카오·네이버·애플 로그인
+│   ├── hint/               # 힌트 API
+│   ├── reward_app.py       # 출석·리더보드
+│   ├── weekly_app.py       # /cycle 목표·통계
+│   ├── notification_app.py # 복습 알림 설정
+│   ├── firebase_app.py     # Expo 푸시 토큰
+│   └── reports_app.py      # 신고 접수
 ├── core/
-│   ├── clova_ocr_service.py # OCR 엔진 통신 및 대기 시간 계산 로직
-│   ├── vision_service.py    # 이미지 전처리 및 비전 서비스
-│   └── notification_service.py # 알림 시스템 서비스
-├── database.py              # PostgreSQL Connection 설정
-└── models.py                # 유저, 리워드, 학습 데이터 DB 스키마
+│   └── database.py         # Supabase 클라이언트
+└── service/
+    ├── clova_ocr_service.py    # 클로바 OCR 연동
+    ├── ocr_usage_service.py    # OCR 사용량
+    ├── notification_service.py # Expo Push 발송
+    └── reward_service.py       # 연속 학습 보너스 등
+```
