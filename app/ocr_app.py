@@ -8,7 +8,9 @@
 
 import io
 import json
+import asyncio
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
+from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any, Union
 import os
@@ -16,6 +18,7 @@ from PIL import Image
 from core.database import supabase
 
 from service.clova_ocr_service import CLOVAOCRService
+from app.ocr_ws import OcrWsManager
 
 
 from service.ocr_usage_service import (
@@ -36,6 +39,7 @@ OCR_UNLIMITED_EMAILS = {
     "himang0623@kakao.com",
     "wkd4fkqg8k@privaterelay.appleid.com",
     "kdabin111@hanmail.net",
+    "hong612644@kakao.com",
 }
 
 def _normalize_email(value: Optional[str]) -> str:
@@ -44,6 +48,38 @@ def _normalize_email(value: Optional[str]) -> str:
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
 clova_service = CLOVAOCRService(API_KEY)
+
+# OCR 진행률 WebSocket (job_id 기반)
+ocr_ws = OcrWsManager()
+
+
+@app.websocket("/ws/ocr/{job_id}")
+async def ocr_progress_ws(ws: WebSocket, job_id: str):
+    """
+    OCR 진행률을 받기 위한 WebSocket 엔드포인트.
+
+    ## 프론트 사용 플로우
+    1) 프론트에서 job_id 생성 (UUID 등)
+    2) 먼저 WS 연결:
+       - ws(s)://<API_BASE>/ws/ocr/{job_id}
+    3) 그 다음 HTTP 업로드:
+       - POST /ocr (multipart/form-data)
+       - file + (선택) crop_x/crop_y/crop_width/crop_height + (선택) job_id
+    4) OCR 처리 중 서버가 페이지 완료 이벤트를 WS로 push
+
+    주의:
+    - 이 WS 핸들러는 "서버→클라이언트 push"가 목적이라, 클라이언트 메시지 내용은 사용하지 않는다.
+    - 연결 유지/종료 감지를 위해 receive를 돌린다.
+    """
+    await ocr_ws.connect(job_id, ws)
+    try:
+        # keep-alive / close 감지용 (클라이언트에서 ping 텍스트를 보내도 되고, 그냥 연결만 유지해도 됨)
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        ocr_ws.disconnect(job_id)
+    except Exception:
+        ocr_ws.disconnect(job_id)
 
 
 class OcrTableBlock(BaseModel):
@@ -165,6 +201,7 @@ async def run_ocr_endpoint(
     crop_y: Optional[str] = Form(None),
     crop_width: Optional[str] = Form(None),
     crop_height: Optional[str] = Form(None),
+    job_id: Optional[str] = Form(None),
 ):
     try:
         file_bytes = await file.read()
@@ -204,8 +241,31 @@ async def run_ocr_endpoint(
                     "pages_limit": OCR_PAGE_LIMIT,
                 }
 
+        # 소켓 진행률 알림 콜백 (job_id가 있을 때만)
+        #
+        # - clova_ocr_service.py는 PDF의 images[]를 페이지로 보며 순회 처리한다.
+        # - 각 페이지 처리 완료 시 progress_cb를 호출하도록 확장해두었고,
+        #   여기서는 그 콜백에서 WebSocket push를 발생시킨다.
+        #
+        # 구현 디테일:
+        # - clova_ocr_service는 동기 함수이므로(현재 구조), 여기서 asyncio loop에 task로 enqueue한다.
+        # - job_id가 없으면(프론트가 WS를 안 쓰면) 콜백은 noop.
+        loop = asyncio.get_running_loop()
+
+        def _progress_cb(page_idx: int, total_pages: int, ok: bool):
+            if not job_id:
+                return
+            payload = {
+                "type": "ocr_progress",
+                "status": "page_done" if ok else "page_error",
+                "page": page_idx + 1,  # 1-based
+                "total_pages": total_pages,
+                "filename": filename,
+            }
+            loop.create_task(ocr_ws.send_json(job_id, payload))
+
         # 네이버 OCR: crop 이 있으면 잘린 영역 이미지만 전달 → 좌표 영역에서 추출한 텍스트만 결과로 반환
-        result = clova_service.process_file(file_bytes, filename)
+        result = clova_service.process_file(file_bytes, filename, progress_cb=_progress_cb)
         print(f"ocr 결과:{result}")
 
         if result["status"] == "error":
