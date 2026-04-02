@@ -36,7 +36,7 @@ async def set_study_goal(
         
         return {
             "status": "success", 
-            "target_count": cycle_count,
+            "monthly_goal": cycle_count,
             "message": "목표가 성공적으로 저장되었습니다."
         }
     except Exception as e:
@@ -155,16 +155,16 @@ email: str = Depends(get_current_user)
 
 
         # 3. 목표 횟수 조회
-        user_res = supabase.table("users").select("target_count").eq("email", email).single().execute()
-        target_count = user_res.data.get("target_count") if user_res.data else 0
+        user_res = supabase.table("users").select("monthly_goal").eq("email", email).single().execute()
+        monthly_goal = user_res.data.get("monthly_goal") if user_res.data else 0
 
         return {
             "status": "success",
             "compare": {
                 "this_month_name": f"{today.month}월",
                 "this_month_count": this_month_count,
-                "target_count": target_count,
-                "diff": target_count - this_month_count
+                "monthly_goal": monthly_goal,
+                "diff": monthly_goal - this_month_count
             }
         }
     except Exception as e:

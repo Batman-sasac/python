@@ -35,6 +35,7 @@
   - `weekly_app.py` : 학습 목표 설정, 주간 성장 그래프, 이번 달 학습 통계 (`/cycle/...`)  
   - `reward_app.py` : 출석 보상, 리워드 랭킹 (`/reward/...`)  
   - `ocr_app.py` : OCR 사용량, OCR 실행, 학습 목록/조회/삭제 (`/ocr/...`)  
+  - `ocr_ws.py` : OCR 진행률 WebSocket 연결 관리 (`/ws/ocr/{job_id}`)  
   - `notification_app.py` : 알림 관련 API  
   - `reports_app.py` : 리포트/통계 관련 API  
   - `firebase_app.py` : Firebase 관련 라우터  
@@ -89,9 +90,15 @@
 
 ## 추가·보강된 기능
 
-- **연속 학습 보너스**: 일정 일수 이상 연속으로 학습 기록이 있을 때, 초기 채점(`POST /study/grade`)·복습 채점(`POST /study/review-study`) 직후 자동으로 추가 포인트를 지급합니다. 응답에 `streak_bonus`, `consecutive_streak_days` 등이 포함됩니다.
+- **연속 학습 보너스(10포인트)**: 어제·오늘처럼 **연속 2일 이상(STREAK_MIN_DAYS=2)** 학습 기록이 이어지면, 채점(`POST /study/grade`) 직후 연속학습 보너스로 **10포인트(STREAK_REWARD_AMOUNT=10)** 를 추가 지급합니다.  
+  - **중복 방지**: 같은 날(KST 기준)에는 1회만 지급됩니다.  
+  - **응답 필드**: `streak_bonus`(이번 요청에서 지급된 보너스), `consecutive_streak_days`(오늘 기준 연속 학습일 수)
 - **페이지 단위 채점 통계**: 초기 채점 요청에서 페이지별 정답 수·문항 수를 함께 보내 기록할 수 있습니다(`page_correct_counts`, `page_question_counts`).
 - **OCR 예상 소요 시간**: `POST /ocr/estimate`로 업로드 파일 기준 예상 페이지·처리 시간을 안내합니다.
+- **OCR 진행률 WebSocket(페이지 단위)**: PDF/다중 이미지 OCR 처리 중, 페이지 완료(1페이지/2페이지/...) 이벤트를 WebSocket으로 push할 수 있습니다.  
+  - WS: `GET /ws/ocr/{job_id}`  
+  - HTTP 업로드: `POST /ocr`의 FormData에 `job_id`를 함께 전송  
+  - 자세한 연동 방법: `docs/OCR_PROGRESS_WS.md`
 - **학습 신고**: `POST /reports/submitted-report`로 신고·피드백을 접수합니다.
 - **Expo 푸시 토큰**: `POST /firebase/user/update-fcm-token`에 `ExponentPushToken[...]` 형식 토큰을 등록합니다.
 
@@ -123,6 +130,7 @@
 | GET    | `/ocr/usage`                     | OCR 사용량 및 남은 무료 페이지 수 조회 |
 | POST   | `/ocr/estimate`                  | 업로드 파일 기준 예상 페이지/시간 계산 |
 | POST   | `/ocr`                           | 이미지(선택 영역 포함) OCR 수행        |
+| WS     | `/ws/ocr/{job_id}`               | OCR 진행률(페이지 완료) WebSocket 구독 |
 | GET    | `/ocr/quiz/{quiz_id}`            | 복습용 퀴즈 데이터(JSON) 조회          |
 | DELETE | `/ocr/ocr-data/delete/{quiz_id}` | 특정 학습(OCR 데이터) 삭제             |
 | GET    | `/ocr/list`                      | 사용자의 학습 목록(OCR 데이터 리스트)  |

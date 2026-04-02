@@ -68,9 +68,9 @@ Expo 푸시 토큰 저장 (iOS, `ExponentPushToken[...]` 형식만 허용).
 
 | Method | Path | 설명 | Request | Response |
 |--------|------|------|---------|----------|
-| POST | `/cycle/set-goal` | 한달 학습 목표 설정 | Form: `cycle_count` (숫자, 필수). `token` Form은 선택(Bearer만 써도 됨) | `{ "status", "target_count", "message" }` |
+| POST | `/cycle/set-goal` | 한달 학습 목표 설정 | Form: `cycle_count` (숫자, 필수). `token` Form은 선택(Bearer만 써도 됨) | `{ "status", "monthly_goal", "message" }` |
 | GET | `/cycle/stats/weekly-growth` | 주간 성장 그래프 (최근 5주) | - | 성공: `{ "labels": string[], "data": number[] }` — 실패 시 `{ "error": string }` 형식일 수 있음 |
-| GET | `/cycle/learning-stats` | 이번 달 vs 목표 비교 | - | `{ "status", "compare": { "this_month_name", "this_month_count", "target_count", "diff" } }` |
+| GET | `/cycle/learning-stats` | 이번 달 vs 목표 비교 | - | `{ "status", "compare": { "this_month_name", "this_month_count", "monthly_goal", "diff" } }` |
 
 ---
 
@@ -91,10 +91,12 @@ Expo 푸시 토큰 저장 (iOS, `ExponentPushToken[...]` 형식만 허용).
 |--------|------|------|---------|----------|
 | GET | `/ocr/usage` | OCR 사용량 | - | `{ "status", "pages_used", "pages_limit", "remaining" }` 등 |
 | POST | `/ocr/estimate` | 예상 페이지/시간 | multipart: `file` | `{ "estimated_time": string }` |
-| POST | `/ocr` | OCR 실행 | multipart: `file`, Form: `crop_x?`, `crop_y?`, `crop_width?`, `crop_height?` | `{ "status", "data": { "pages", "page_count", ... } }` |
-| GET | `/ocr/quiz/{quiz_id}` | 복습용 퀴즈 데이터 | - | `{ "status", "data": { "quiz_id", "title", "extractedText", "blanks", "user_answers" } }` |
+| POST | `/ocr` | OCR 실행 | multipart: `file`, Form: `crop_x?`, `crop_y?`, `crop_width?`, `crop_height?`, `job_id?` | 응답 스키마·저장 흐름·2열 설정은 **[OCR.md](./OCR.md)** |
+| GET | `/ocr/quiz/{quiz_id}` | 복습용 퀴즈 데이터 | - | `{ "status", "data": { "quiz_id", "title", "extractedText", "blanks", "user_answers", "pages?", "layout_meta?", "image_url?" } }` |
 | DELETE | `/ocr/ocr-data/delete/{quiz_id}` | 학습 삭제 | - | `{ "status", "message" }` |
 | GET | `/ocr/list` | 학습 목록 | - | `{ "data": [{ "id", "study_name", "subject_name", "ocr_preview", "created_at" }] }` |
+
+**OCR 응답 JSON, Supabase 저장, `OCR_TWO_COLUMN_LAYOUT`, 표·레이아웃 스키마, 프론트 UI** → **[OCR.md](./OCR.md)** 에 정리해 두었습니다.
 
 ---
 

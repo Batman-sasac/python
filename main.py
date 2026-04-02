@@ -29,6 +29,10 @@ from service.notification_service import check_and_send_reminders, is_notificati
 
 load_dotenv()
 
+# OCR 2열 보정: service/clova_ocr_service._fields_to_page_text 가 OCR_TWO_COLUMN_LAYOUT 를 읽음 (추가 import 불필요)
+if os.getenv("OCR_TWO_COLUMN_LAYOUT", "").lower() in ("1", "true", "yes"):
+    print("📄 OCR_TWO_COLUMN_LAYOUT 활성화 — 2열 단어장일 때 original_text 를 왼쪽|오른쪽 형태로 합침")
+
 app = FastAPI()
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.

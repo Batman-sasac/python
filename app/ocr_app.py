@@ -18,7 +18,7 @@ from PIL import Image
 from core.database import supabase
 
 from service.clova_ocr_service import CLOVAOCRService
-from app.ocr_ws import OcrWsManager
+from .ocr_ws import OcrWsManager
 
 
 from service.ocr_usage_service import (

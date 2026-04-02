@@ -312,9 +312,16 @@ class CLOVAOCRService:
     
     
     
-    def extract_text_with_clova(self, file_bytes, filename):
+    def extract_text_with_clova(self, file_bytes, filename, progress_cb=None):
         """네이버 클로바 OCR을 사용하여 페이지별로 텍스트 추출.
         file_bytes: 원본 또는 ocr_app에서 crop된 잘린 이미지 bytes (좌표 적용 후 넘어옴).
+
+        progress_cb:
+        - 페이지 단위 진행률을 외부(WebSocket 등)로 전달하기 위한 콜백.
+        - 시그니처: progress_cb(page_idx: int, total_pages: int, ok: bool) -> None
+          - page_idx: 0-based
+          - total_pages: images[] 길이 (PDF면 페이지 수)
+          - ok: 해당 페이지 처리 성공 여부 (현재는 fields 비어도 ok=True로 보고 "완료" 이벤트를 발행)
         """
         pages_text = []
         pages_tables = []
@@ -410,18 +417,33 @@ class CLOVAOCRService:
                     return None
                 
                 # [핵심] 클로바는 PDF의 각 페이지를 'images' 리스트의 개별 요소로 반환합니다.
-                for image in result.get('images', []):
+                # Clova OCR 응답:
+                # - PDF: images[]에 각 페이지 결과가 들어온다. (images.length == 페이지 수)
+                # - 단일 이미지: images[] 길이 1
+                images = result.get('images', []) or []
+                total_pages = len(images)
+                for page_idx, image in enumerate(images):
                     pages_tables.append(_clova_tables_to_page_tables(image.get('tables')))
                     fields = image.get('fields', [])
                     if not fields:
                         pages_text.append("")
                         pages_layout.append([])
+                        if callable(progress_cb):
+                            try:
+                                progress_cb(page_idx=page_idx, total_pages=total_pages, ok=True)
+                            except Exception:
+                                logger.exception("progress_cb 호출 실패 (빈 fields). page_idx=%s", page_idx)
                         continue
 
                     full_page_text = _fields_to_page_text(fields, image)
                     pages_text.append(full_page_text.strip())
                     pages_layout.append(_layout_blocks_reading_order(fields, image))
                     print(f"✅ {len(pages_text)}페이지 추출 및 정렬 완료")
+                    if callable(progress_cb):
+                        try:
+                            progress_cb(page_idx=page_idx, total_pages=total_pages, ok=True)
+                        except Exception:
+                            logger.exception("progress_cb 호출 실패. page_idx=%s", page_idx)
 
                 if not result.get("images"):
                     logger.warning(
@@ -447,13 +469,13 @@ class CLOVAOCRService:
 
 
     
-    def process_file(self, file_bytes, filename):
+    def process_file(self, file_bytes, filename, progress_cb=None):
         """텍스트 추출 및 페이지별 GPT 키워드 추출 실행.
         file_bytes: ocr_app에서 전달 — crop 적용 시 잘린 이미지 bytes만 넘어옴.
         """
         total_start = time.time()
         # 1. OCR 텍스트 추출 (전달받은 이미지 = 원본 또는 잘린 영역만)
-        extracted = self.extract_text_with_clova(file_bytes, filename)
+        extracted = self.extract_text_with_clova(file_bytes, filename, progress_cb=progress_cb)
 
         gpt_start = time.time()
 
