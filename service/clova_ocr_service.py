@@ -52,6 +52,33 @@ def _clova_tables_to_page_tables(tables_raw):
     return out
 
 
+def _tables_raw_to_plain_text(tables_raw):
+    """
+    표 영역 텍스트를 한 덩어리 문자열로 합친다.
+    original_text / GPT 키워드 입력이 동일한 페이지 문자열을 쓰도록 fields 결과와 합치기 위해 사용한다.
+    """
+    blocks = _clova_tables_to_page_tables(tables_raw)
+    if not blocks:
+        return ""
+    lines = []
+    for tbl in blocks:
+        for row in tbl.get("rows") or []:
+            line = " ".join((c or "").strip() for c in row if (c or "").strip())
+            if line:
+                lines.append(line)
+    return "\n".join(lines)
+
+
+def _merge_field_text_and_tables(field_text: str, tables_raw) -> str:
+    """필드 기반 본문 + 표 셀 텍스트를 한 페이지의 통합 원문으로 만든다."""
+    tbl_plain = _tables_raw_to_plain_text(tables_raw)
+    ft = (field_text or "").strip()
+    tt = (tbl_plain or "").strip()
+    if ft and tt:
+        return f"{ft}\n\n{tt}"
+    return ft or tt
+
+
 def _vertices(field):
     return (field.get("boundingPoly") or {}).get("vertices") or []
 
@@ -143,6 +170,34 @@ def _layout_blocks_reading_order(fields, image):
             if bb:
                 blocks.append(bb)
     return blocks
+
+
+def build_blank_candidates_from_layout(layout_blocks, page_index: int):
+    """
+    빈칸(학습) 후보 목록: `layout_blocks`와 동일한 OCR 필드 박스를 선택 UI용으로 내려준다.
+    `keywords`(GPT 핵심어)와 별개이며, 필드 단위 텍스트·좌표를 그대로 쓴다.
+    """
+    if not layout_blocks:
+        return []
+    out = []
+    for idx, block in enumerate(layout_blocks):
+        if not isinstance(block, dict):
+            continue
+        text = (block.get("text") or "").strip()
+        if not text:
+            continue
+        out.append(
+            {
+                "id": f"{page_index}-{idx}",
+                "text": text,
+                "page_index": page_index,
+                "x": float(block.get("x", 0)),
+                "y": float(block.get("y", 0)),
+                "width": float(block.get("width", 0)),
+                "height": float(block.get("height", 0)),
+            }
+        )
+    return out
 
 
 def _median_field_height(fields):
@@ -423,10 +478,13 @@ class CLOVAOCRService:
                 images = result.get('images', []) or []
                 total_pages = len(images)
                 for page_idx, image in enumerate(images):
-                    pages_tables.append(_clova_tables_to_page_tables(image.get('tables')))
+                    tables_raw = image.get('tables')
+                    pages_tables.append(_clova_tables_to_page_tables(tables_raw))
                     fields = image.get('fields', [])
                     if not fields:
-                        pages_text.append("")
+                        # 표만 있고 필드 박스가 없는 페이지도 원문·키워드에 반영
+                        merged = _merge_field_text_and_tables("", tables_raw)
+                        pages_text.append(merged)
                         pages_layout.append([])
                         if callable(progress_cb):
                             try:
@@ -436,7 +494,8 @@ class CLOVAOCRService:
                         continue
 
                     full_page_text = _fields_to_page_text(fields, image)
-                    pages_text.append(full_page_text.strip())
+                    merged = _merge_field_text_and_tables(full_page_text, tables_raw)
+                    pages_text.append(merged.strip())
                     pages_layout.append(_layout_blocks_reading_order(fields, image))
                     print(f"✅ {len(pages_text)}페이지 추출 및 정렬 완료")
                     if callable(progress_cb):
@@ -540,6 +599,7 @@ class CLOVAOCRService:
         # 2) 그렇지 않으면 original_text, keywords 단일 필드를 사용 (하위 호환)
         #
         # 여기서는 멀티 페이지를 정식 지원하기 위해 pages 배열을 내려준다.
+        # keywords: GPT 핵심어 추출 / blank_candidates: layout_blocks 기반 빈칸 후보(별도 목적)
         return {
             "status": "success",
             "pages": [
@@ -548,9 +608,15 @@ class CLOVAOCRService:
                     "keywords": keywords,
                     "tables": tables,
                     "layout_blocks": layout,
+                    "blank_candidates": build_blank_candidates_from_layout(layout, i),
                 }
-                for text, keywords, tables, layout in zip(
-                    all_pages_text, all_keywords, all_pages_tables, all_pages_layout
+                for i, (text, keywords, tables, layout) in enumerate(
+                    zip(
+                        all_pages_text,
+                        all_keywords,
+                        all_pages_tables,
+                        all_pages_layout,
+                    )
                 )
             ],
             "page_count": page_count,

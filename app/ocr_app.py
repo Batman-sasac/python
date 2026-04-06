@@ -17,7 +17,7 @@ import os
 from PIL import Image
 from core.database import supabase
 
-from service.clova_ocr_service import CLOVAOCRService
+from service.clova_ocr_service import CLOVAOCRService, build_blank_candidates_from_layout
 from .ocr_ws import OcrWsManager
 
 
@@ -95,11 +95,23 @@ class LayoutBlock(BaseModel):
     height: float
 
 
+class BlankCandidate(BaseModel):
+    """빈칸(학습) 후보: layout_blocks와 동일 박스 기준. keywords(핵심어)와 별개."""
+    id: str
+    text: str
+    page_index: int
+    x: float
+    y: float
+    width: float
+    height: float
+
+
 class PageItem(BaseModel):
     original_text: str
     keywords: List[str] = []
     tables: Optional[List[OcrTableBlock]] = None
     layout_blocks: Optional[List[LayoutBlock]] = None
+    blank_candidates: Optional[List[BlankCandidate]] = None
 
 
 class BlankItem(BaseModel):
@@ -326,6 +338,19 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
         user_answers = row.get("user_answers") or []
         layout_meta = ocr_val.get("layout_meta") or {}
 
+        # 예전 저장본에는 blank_candidates가 없을 수 있음 → layout_blocks로 보강
+        enriched_pages = []
+        for pi, p in enumerate(pages or []):
+            if not isinstance(p, dict):
+                enriched_pages.append(p)
+                continue
+            pc = dict(p)
+            if not pc.get("blank_candidates") and pc.get("layout_blocks"):
+                pc["blank_candidates"] = build_blank_candidates_from_layout(
+                    pc.get("layout_blocks"), pi
+                )
+            enriched_pages.append(pc)
+
         return {
             "status": "success",
             "data": {
@@ -335,8 +360,8 @@ async def get_quiz_for_review(quiz_id: int, email: str = Depends(get_current_use
                 "blanks": blanks_list,
                 "user_answers": user_answers,
                 "image_url": row.get("image_url"),
-                # layout_blocks·tables 포함해 복습 시 동일 좌표 UI 복원
-                "pages": pages,
+                # layout_blocks·tables·blank_candidates 포함해 복습 시 동일 좌표 UI 복원
+                "pages": enriched_pages,
                 "layout_meta": layout_meta,
             },
         }

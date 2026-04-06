@@ -85,7 +85,8 @@
 | 필드 | 타입 | 설명 |
 |------|------|------|
 | `original_text` | `string` | 해당 페이지에서 인식한 **전체 텍스트** (줄바꿈 포함 가능). 화면에는 “원문” 영역에 그대로 넣으면 됨. |
-| `keywords` | `string[]` | GPT가 뽑은 **핵심 단어** 배열. 순서는 중요하지 않을 수 있음. 빈칸 후보·칩 UI에 사용. |
+| `keywords` | `string[]` | GPT가 뽑은 **핵심 단어** 배열. 요약·칩 등에 사용. **빈칸 후보와는 별개**이다. |
+| `blank_candidates` | `BlankCandidate[]` | **빈칸(학습) 후보** — `layout_blocks`와 동일한 필드 박스를 `id`·`text`·`page_index`·좌표로 내려준다. 프론트는 후보 선택 UI에 이 목록을 쓰면 된다. 없으면 `[]`. |
 | `tables` | `OcrTableBlock[]` | 이 페이지에서 인식한 **표 개수만큼** 요소가 있음. 표가 없으면 `[]`. |
 | `layout_blocks` | `LayoutBlock[]` | **문단/단어 단위 박스**. 읽기 순서대로 정렬됨. 좌표는 아래 참고. 없으면 `[]`. |
 
@@ -107,11 +108,16 @@
   "layout_blocks": [
     { "text": "1. 다음 표를 보고", "x": 0.08, "y": 0.05, "width": 0.35, "height": 0.03 },
     { "text": "답하시오.", "x": 0.44, "y": 0.05, "width": 0.12, "height": 0.03 }
+  ],
+  "blank_candidates": [
+    { "id": "0-0", "text": "1. 다음 표를 보고", "page_index": 0, "x": 0.08, "y": 0.05, "width": 0.35, "height": 0.03 },
+    { "id": "0-1", "text": "답하시오.", "page_index": 0, "x": 0.44, "y": 0.05, "width": 0.12, "height": 0.03 }
   ]
 }
 ```
 
-- **프론트에서의 최소 처리**: `pages.map((p, i) => …)` 로 페이지마다 카드/섹션을 나누고, 각 카드 안에 순서대로 **① 원문** → **② 키워드 칩** → **③ 표 목록** → **④ (선택) 레이아웃** 을 두면 됨.
+- **`BlankCandidate`**: `id`는 페이지 내 인덱스 기준 문자열(`"{page_index}-{박스순번}"`). `page_index`는 `pages` 배열 기준 0부터.
+- **프론트에서의 최소 처리**: `pages.map((p, i) => …)` 로 페이지마다 카드/섹션을 나누고, **빈칸 후보는 `blank_candidates`** 를, **핵심어 칩은 `keywords`**, 텍스트 위치 오버레이는 **`layout_blocks`** 를 사용하면 됨.
 
 #### `OcrTableBlock` (`tables` 배열의 각 요소)
 
