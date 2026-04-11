@@ -1,10 +1,13 @@
-import psycopg2
+import logging
 import os
-from dotenv import load_dotenv
-from supabase import create_client, Client
 
+import psycopg2
+from dotenv import load_dotenv
+from supabase import Client, create_client
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 url: str = os.getenv("SUPABASE_URL")
 # 백엔드 전용: service_role 사용 시 insert 후 id가 항상 반환됨 → study_logs·reward_history 저장 가능
@@ -13,19 +16,13 @@ key: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KE
 
 supabase: Client = create_client(url, key)
 
-print("--- DB 연결 테스트 시작 ---")
 try:
-    # 'ocr_data'라는 이름의 테이블이 실제로 있는지 확인하세요!
-    # 만약 테이블 이름이 다르다면 그 이름으로 바꿔주어야 합니다.
     response = supabase.table("users").select("*").limit(1).execute()
-
-
     if response.data:
-        print(f"성공! 데이터: {response.data}")
+        logger.info("Supabase 연결 OK (users 샘플 %d건)", len(response.data))
     else:
-        print("연결은 됐으나 데이터가 비어있습니다. (RLS나 테이블명 확인 필요)")
-
+        logger.warning(
+            "Supabase 연결은 됐으나 users 샘플이 비어 있음 (RLS/테이블명 확인)"
+        )
 except Exception as e:
-    print("❌ 연결 실패!")
-    print(f"오류 원인: {e}")
-    print(f"확인된 URL: {url}") # URL이 None으로 나오는지 확인용
+    logger.error("Supabase 연결 실패: %s (SUPABASE_URL 설정 여부 확인)", e)

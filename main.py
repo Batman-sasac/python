@@ -1,12 +1,19 @@
 # /, /home, /index
 
+import logging
 import os
 from typing import Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
+from app.logging_config import configure_logging
+
+configure_logging()
 
 import jwt
 import uvicorn
 from apscheduler.schedulers.background import BackgroundScheduler
-from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,11 +34,13 @@ from app.firebase_app import app as firebase_app
 from app.reward_app import check_attendance_and_reward
 from service.notification_service import check_and_send_reminders, is_notification_simulation
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
 # OCR 2열 보정: service/clova_ocr_service._fields_to_page_text 가 OCR_TWO_COLUMN_LAYOUT 를 읽음 (추가 import 불필요)
 if os.getenv("OCR_TWO_COLUMN_LAYOUT", "").lower() in ("1", "true", "yes"):
-    print("📄 OCR_TWO_COLUMN_LAYOUT 활성화 — 2열 단어장일 때 original_text 를 왼쪽|오른쪽 형태로 합침")
+    logger.info(
+        "OCR_TWO_COLUMN_LAYOUT 활성화 — 2열 단어장일 때 original_text 를 왼쪽|오른쪽 형태로 합침"
+    )
 
 app = FastAPI()
 
@@ -78,9 +87,12 @@ def start_scheduler():
     )
     scheduler.start()
     sim_val = os.getenv("NOTIFICATION_SIMULATE", "")
-    mode = "🧪 시뮬레이션 (DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
-    print(f"⏰ 알림 스케줄러 시작 — 매 분 복습 알림 체크 ({mode})")
-    print(f"   환경 변수 NOTIFICATION_SIMULATE={sim_val!r} (비우거나 0이면 실제 발송)")
+    mode = "시뮬레이션(DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
+    logger.info(
+        "알림 스케줄러 시작 (5분마다) mode=%s NOTIFICATION_SIMULATE=%r",
+        mode,
+        sim_val,
+    )
    
 
 
@@ -107,5 +119,11 @@ async def get_config():
 
 if __name__ == "__main__":
     port = 8000
-    print(f"\n🚀 서버 가동 중 - Port: {port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    logger.info("로컬 개발 서버 시작 port=%s", port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
+        access_log=False,
+    )

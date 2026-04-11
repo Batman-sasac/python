@@ -4,6 +4,7 @@
 - 발송 후 users.remind_sent_at 갱신(sent 처리)으로 같은 날 중복 발송 방지.
 - DB remind_time 컬럼이 PostgreSQL time 타입이어도 정규화 후 비교.
 """
+import logging
 import re
 import traceback
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ import os
 import requests
 
 from core.database import supabase
+
+logger = logging.getLogger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
@@ -41,7 +44,6 @@ def send_expo_notification(token: str, title: str, body: str) -> bool:
     Firebase는 APNs 토큰을 받을 수 없어 iOS 기기에는 Expo API를 사용해야 함.
     """
     if is_notification_simulation():
-        print(f"🧪 [시뮬레이션] Expo 푸시 발송 스킵 — token={token[:30]}... title={title!r}")
         return True
     try:
         payload = {"to": token, "title": title, "body": body, "sound": "default"}
@@ -60,16 +62,24 @@ def send_expo_notification(token: str, title: str, body: str) -> bool:
             ticket = data["data"][0] if isinstance(data["data"], list) else data["data"]
             if ticket.get("status") == "error":
                 msg = ticket.get("message", "unknown")
-                print(f"❌ [Expo] 푸시 실패 | message={msg} | token_snippet={_token_log_snippet(token)}")
+                logger.error(
+                    "[Expo] 푸시 실패 | message=%s | token_snippet=%s",
+                    msg,
+                    _token_log_snippet(token),
+                )
                 return False
         return True
     except requests.RequestException as e:
-        print(f"❌ [Expo] 전송 실패 | {type(e).__name__}: {e} | token_snippet={_token_log_snippet(token)}")
-        traceback.print_exc()
+        logger.exception(
+            "[Expo] 전송 실패 | token_snippet=%s",
+            _token_log_snippet(token),
+        )
         return False
     except Exception as e:
-        print(f"❌ [Expo] 예외 | {type(e).__name__}: {e} | token_snippet={_token_log_snippet(token)}")
-        traceback.print_exc()
+        logger.exception(
+            "[Expo] 예외 | token_snippet=%s",
+            _token_log_snippet(token),
+        )
         return False
 
 
@@ -78,11 +88,14 @@ def send_push_notification(token: str, title: str, body: str) -> bool:
     Expo Push API로 푸시 발송 (iOS 전용, ExponentPushToken만 사용).
     """
     if not token or not token.strip():
-        print("[Push] ❌ 발송 스킵: 토큰이 비어 있음")
+        logger.warning("[Push] 발송 스킵: 토큰이 비어 있음")
         return False
     token = token.strip()
     if not _is_expo_push_token(token):
-        print(f"[Push] ❌ ExponentPushToken이 아님 — 발송 스킵 | snippet={_token_log_snippet(token)}")
+        logger.warning(
+            "[Push] ExponentPushToken이 아님 — 발송 스킵 | snippet=%s",
+            _token_log_snippet(token),
+        )
         return False
     return send_expo_notification(token, title, body)
 
@@ -203,7 +216,14 @@ def _filter_by_remind_time(rows: list, now_hm: str, now_hms: str, debug_log: boo
         rt = _normalize_remind_time(raw)
         match = _time_in_window(rt, now_normalized, time_window_minutes) if rt else False
         if debug_log:
-            print(f"    [remind_time] email={u.get('email','')} raw={raw!r} type={type(raw).__name__} → norm={rt!r} now={now_normalized!r} match={match}")
+            logger.debug(
+                "[remind_time] email=%s raw=%r norm=%r now=%r match=%s",
+                u.get("email", ""),
+                raw,
+                rt,
+                now_normalized,
+                match,
+            )
         if match:
             out.append(u)
     return out
@@ -227,9 +247,6 @@ def check_and_send_reminders():
         simulate = is_notification_simulation()
         # 시뮬레이션: 현재 시간 ±5분 구간 매칭, fcm_token 없어도 대상 포함
         time_window = 5
-
-        if simulate:
-            print(f"[알림] 🧪 시뮬레이션 (KST {now}, today={today}, ±{time_window}분)")
 
         def _is_notify_on(val) -> bool:
             if val is None:
@@ -265,7 +282,9 @@ def check_and_send_reminders():
                 except Exception as e:
                     if _remind_sent_at_available is None and _is_remind_sent_at_missing_error(e):
                         _remind_sent_at_available = False
-                        print("⚠️ users.remind_sent_at 컬럼 없음 — 이번 회차는 발송 기록 없이 진행.")
+                        logger.warning(
+                            "users.remind_sent_at 컬럼 없음 — 이번 회차는 발송 기록 없이 진행."
+                        )
                         base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
                         response = base_filter.execute()
                         rows = response.data or []
@@ -273,14 +292,10 @@ def check_and_send_reminders():
                     else:
                         raise
 
-        if not rows:
-            if simulate:
-                print("[알림] DB 조회 0명 (remind_time 있는 유저 없음)")
-        elif simulate:
-            print(f"[알림] DB 후보 {len(rows)}명 (now={now} KST, ±{time_window}분)")
-
         if simulate:
-            targets = _filter_by_remind_time(rows, now, now_with_sec, debug_log=True, time_window_minutes=time_window)
+            targets = _filter_by_remind_time(
+                rows, now, now_with_sec, debug_log=False, time_window_minutes=time_window
+            )
         else:
             rows = _filter_by_remind_time(rows, now, now_with_sec, debug_log=False, time_window_minutes=0)
             targets = [u for u in rows if _sent_before_today(u.get("remind_sent_at"), today)] if use_sent else rows
@@ -315,17 +330,21 @@ def check_and_send_reminders():
                     except Exception as e:
                         if _is_remind_sent_at_missing_error(e):
                             _remind_sent_at_available = False
-                            print("⚠️ users.remind_sent_at 컬럼 없음 — 발송 기록 생략. 컬럼 추가 권장.")
+                            logger.warning(
+                                "users.remind_sent_at 컬럼 없음 — 발송 기록 생략. 컬럼 추가 권장."
+                            )
             else:
-                print(f"❌ [알림 스케줄] 발송 실패: {email} — 위 [Expo] 로그 참고")
+                logger.error("[알림 스케줄] 발송 실패: %s — Expo 로그 참고", email)
 
     except Exception as e:
         if is_notification_simulation():
-            print(f"🧪 [시뮬레이션] 알림 조회/발송 로직 오류 (무시하고 다음 주기에 재시도): {e}")
+            logger.debug("시뮬레이션 알림 조회/발송 오류 (다음 주기 재시도): %s", e)
             return
         if _remind_sent_at_available is None and _is_remind_sent_at_missing_error(e):
             _remind_sent_at_available = False
-            print("⚠️ users.remind_sent_at 컬럼 없음 — 발송 기록 없이 재시도. 컬럼 추가 시 알림 시간 변경 시 리셋 기능 사용 가능.")
+            logger.warning(
+                "users.remind_sent_at 컬럼 없음 — 발송 기록 없이 재시도. 컬럼 추가 시 리셋 기능 사용 가능."
+            )
             check_and_send_reminders()
         else:
-            print(f"❌ 알림 스케줄 태스크 오류: {e}")
+            logger.exception("알림 스케줄 태스크 오류")
