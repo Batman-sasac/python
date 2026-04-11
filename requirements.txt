@@ -19,6 +19,7 @@ flask-cors
 # AI 및 클라우드
 openai
 python-dotenv
+kiwipiepy
 
 # PDF 및 이미지
 pdf2image

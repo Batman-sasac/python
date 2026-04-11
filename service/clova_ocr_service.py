@@ -6,10 +6,15 @@ import re
 import os
 import statistics
 import logging
-from openai import OpenAI
 import io  
 from pdf2image import convert_from_bytes 
 from pypdf import PdfReader
+
+from service.keyword_adapter import extract_keywords_from_text
+
+# LLM 키워드 추출 복구 시: 아래 import 주석 해제 + CLOVAOCRService.__init__ 및 process_file 내 LLM 블록 주석 해제,
+# 동시에 형태소 어댑터 호출 부분을 주석 처리
+# from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -175,7 +180,7 @@ def _layout_blocks_reading_order(fields, image):
 def build_blank_candidates_from_layout(layout_blocks, page_index: int):
     """
     빈칸(학습) 후보 목록: `layout_blocks`와 동일한 OCR 필드 박스를 선택 UI용으로 내려준다.
-    `keywords`(GPT 핵심어)와 별개이며, 필드 단위 텍스트·좌표를 그대로 쓴다.
+    `keywords`(추출 키워드)와 별개이며, 필드 단위 텍스트·좌표를 그대로 쓴다.
     """
     if not layout_blocks:
         return []
@@ -322,10 +327,10 @@ def _fields_to_page_text(fields, image):
 class CLOVAOCRService:
     def __init__(self, api_key):
         self.api_key = api_key
-        # OpenAI 클라이언트 초기화
-        self.gpt_client = OpenAI(api_key=api_key) 
-        self.model = "gpt-4o" 
-        
+        # --- OpenAI 클라이언트 (페이지별 LLM 키워드 추출용, 현재 비활성화 — service/keyword_adapter 사용) ---
+        # self.gpt_client = OpenAI(api_key=api_key)
+        # self.model = "gpt-4o"
+
         # 네이버 클로바 설정 (환경변수)
         self.clova_url = os.getenv("CLOVA_OCR_URL")
         self.clova_secret = os.getenv("CLOVA_OCR_SECRET")
@@ -529,14 +534,12 @@ class CLOVAOCRService:
 
     
     def process_file(self, file_bytes, filename, progress_cb=None):
-        """텍스트 추출 및 페이지별 GPT 키워드 추출 실행.
+        """텍스트 추출 및 페이지별 키워드 추출 실행.
         file_bytes: ocr_app에서 전달 — crop 적용 시 잘린 이미지 bytes만 넘어옴.
         """
         total_start = time.time()
         # 1. OCR 텍스트 추출 (전달받은 이미지 = 원본 또는 잘린 영역만)
         extracted = self.extract_text_with_clova(file_bytes, filename, progress_cb=progress_cb)
-
-        gpt_start = time.time()
 
         if extracted is None:
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
@@ -546,49 +549,53 @@ class CLOVAOCRService:
         if not all_pages_text:
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
 
-        all_keywords = []
+        # --- (보존) LLM 기반 페이지별 키워드 추출 — 복구 시 위 `from openai import OpenAI` 및 __init__의 gpt_client 주석 해제 후 아래 활성화,
+        #     그리고 아래 "형태소 어댑터" 블록은 주석 처리
+        # gpt_start = time.time()
+        # all_keywords = []
+        # for i, page_text in enumerate(all_pages_text):
+        #     try:
+        #         response = self.gpt_client.chat.completions.create(
+        #             model=self.model,
+        #             messages=[
+        #                 {
+        #                     "role": "system",
+        #                     "content": (
+        #                         "제공된 텍스트에서 학습에 필요한 핵심 단어(명사)만 추출하세요.\n"
+        #                         "1. 한글 명사와 영어 단어(명사) 모두 추출하세요. 텍스트에 영어가 있으면 영어 단어도 반드시 포함하세요.\n"
+        #                         "2. 숫자나 중요한 고유명사도 포함하세요.\n"
+        #                         "3. 반드시 ['단어1', '단어2'] 형태의 JSON 배열로만 답변하세요.\n"
+        #                         "4. 조사, 형용사는 제외하고 명사만 포함하세요."
+        #                     ),
+        #                 },
+        #                 {
+        #                     "role": "user",
+        #                     "content": f"다음 텍스트에서 한글 명사와 영어 단어를 모두 포함해 키워드만 뽑아줘:\n\n{page_text}",
+        #                 },
+        #             ],
+        #             temperature=0,
+        #         )
+        #         content = response.choices[0].message.content.strip()
+        #         match = re.search(r"\[.*\]", content, re.DOTALL)
+        #         if match:
+        #             json_str = match.group().replace("'", '"')
+        #             keywords = json.loads(json_str)
+        #         else:
+        #             keywords = []
+        #         all_keywords.append(keywords)
+        #     except Exception as e:
+        #         print(f"페이지 {i+1} GPT 에러: {e}")
+        #         all_keywords.append([])
+        # gpt_duration = time.time() - gpt_start
+        # print(f"⏱️ [GPT 키워드 추출 소요 시간]: {gpt_duration:.2f}초")
 
-        # 2. 각 페이지별로 루프를 돌며 키워드 추출
-        for i, page_text in enumerate(all_pages_text):
-            try:
-                response = self.gpt_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {
-                            "role": "system", 
-                            "content": (
-                                "제공된 텍스트에서 학습에 필요한 핵심 단어(명사)만 추출하세요.\n"
-                                "1. 한글 명사와 영어 단어(명사) 모두 추출하세요. 텍스트에 영어가 있으면 영어 단어도 반드시 포함하세요.\n"
-                                "2. 숫자나 중요한 고유명사도 포함하세요.\n"
-                                "3. 반드시 ['단어1', '단어2'] 형태의 JSON 배열로만 답변하세요.\n"
-                                "4. 조사, 형용사는 제외하고 명사만 포함하세요."
-                            )
-                        },
-                        {
-                            "role": "user", 
-                            "content": f"다음 텍스트에서 한글 명사와 영어 단어를 모두 포함해 키워드만 뽑아줘:\n\n{page_text}"
-                        }
-                    ],
-                    temperature=0
-                )
-                
-                content = response.choices[0].message.content.strip()
-                match = re.search(r'\[.*\]', content, re.DOTALL)
-                
-                if match:
-                    json_str = match.group().replace("'", '"')
-                    keywords = json.loads(json_str)
-                else:
-                    keywords = []
-
-                all_keywords.append(keywords)
-
-            except Exception as e:
-                print(f"페이지 {i+1} GPT 에러: {e}")
-                all_keywords.append([]) 
-
-        gpt_duration = time.time() - gpt_start
-        print(f"⏱️ [GPT 키워드 추출 소요 시간]: {gpt_duration:.2f}초")
+        # 2. 각 페이지별 형태소 어댑터 기반 키워드 추출 (외부 LLM 호출 없음)
+        kw_start = time.time()
+        all_keywords: list[list[str]] = []
+        for page_text in all_pages_text:
+            all_keywords.append(extract_keywords_from_text(page_text))
+        kw_duration = time.time() - kw_start
+        print(f"⏱️ [키워드(형태소 어댑터) 추출 소요 시간]: {kw_duration:.2f}초")
         
         total_duration = time.time() - total_start
         page_count = len(all_pages_text)
@@ -599,7 +606,7 @@ class CLOVAOCRService:
         # 2) 그렇지 않으면 original_text, keywords 단일 필드를 사용 (하위 호환)
         #
         # 여기서는 멀티 페이지를 정식 지원하기 위해 pages 배열을 내려준다.
-        # keywords: GPT 핵심어 추출 / blank_candidates: layout_blocks 기반 빈칸 후보(별도 목적)
+        # keywords: 형태소/휴리스틱 기반 키워드 / blank_candidates: layout_blocks 기반 빈칸 후보(별도 목적)
         return {
             "status": "success",
             "pages": [
