@@ -9,6 +9,7 @@
 import io
 import json
 import asyncio
+import time
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -51,6 +52,50 @@ clova_service = CLOVAOCRService(API_KEY)
 
 # OCR 진행률 WebSocket (job_id 기반)
 ocr_ws = OcrWsManager()
+
+
+class _OcrJobState(BaseModel):
+    status: str  # queued|running|done|error
+    created_at: float
+    updated_at: float
+    filename: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+# 인메모리 OCR job 저장소 (MVP용)
+# - Render 재시작/스케일아웃 시 유실될 수 있음(근본 해결은 Redis/DB)
+_OCR_JOBS: Dict[str, _OcrJobState] = {}
+
+# 동시 OCR 실행 제한 (기본 1). 필요하면 환경변수로 조절.
+_OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "1"))
+_OCR_SEM = asyncio.Semaphore(max(1, _OCR_CONCURRENCY))
+
+
+async def _push_job_event(job_id: str, payload: Dict[str, Any]):
+    try:
+        await ocr_ws.send_json(job_id, payload)
+    except Exception:
+        # WS 전송 실패는 OCR 자체 실패로 취급하지 않는다.
+        return
+
+
+@app.get("/ocr/job/{job_id}")
+async def get_ocr_job(job_id: str, email: str = Depends(get_current_user)):
+    """
+    비동기 OCR(job_id) 상태/결과 조회.
+    - MVP: 인메모리 저장. 서버 재시작 시 유실 가능.
+    """
+    _ = email  # 인증만 통과시키기(결과는 job_id를 아는 클라이언트만 조회 가능)
+    st = _OCR_JOBS.get(job_id)
+    if not st:
+        return {"status": "not_found"}
+    # result는 클 수 있으니 done일 때만 포함
+    if st.status == "done":
+        return {"status": "done", "data": st.result}
+    if st.status == "error":
+        return {"status": "error", "message": st.error}
+    return {"status": st.status, "filename": st.filename}
 
 
 @app.websocket("/ws/ocr/{job_id}")
@@ -214,6 +259,7 @@ async def run_ocr_endpoint(
     crop_width: Optional[str] = Form(None),
     crop_height: Optional[str] = Form(None),
     job_id: Optional[str] = Form(None),
+    async_mode: Optional[str] = Form(None),
 ):
     try:
         file_bytes = await file.read()
@@ -276,7 +322,105 @@ async def run_ocr_endpoint(
             }
             loop.create_task(ocr_ws.send_json(job_id, payload))
 
-        # 네이버 OCR: crop 이 있으면 잘린 영역 이미지만 전달 → 좌표 영역에서 추출한 텍스트만 결과로 반환
+        want_async = str(async_mode or "").strip().lower() in ("1", "true", "yes", "y")
+
+        # (대안) 긴 OCR은 HTTP를 빨리 끝내고, job_id로 결과를 받도록 비동기 모드 제공
+        if want_async:
+            if not job_id:
+                return {
+                    "status": "error",
+                    "message": "async_mode 사용 시 job_id가 필요합니다.",
+                }
+
+            now = time.time()
+            _OCR_JOBS[job_id] = _OcrJobState(
+                status="queued",
+                created_at=now,
+                updated_at=now,
+                filename=filename,
+            )
+            loop.create_task(
+                _push_job_event(
+                    job_id,
+                    {
+                        "type": "ocr_progress",
+                        "status": "queued",
+                        "filename": filename,
+                    },
+                )
+            )
+
+            async def _run_job():
+                async with _OCR_SEM:
+                    st = _OCR_JOBS.get(job_id)
+                    if st:
+                        st.status = "running"
+                        st.updated_at = time.time()
+                        _OCR_JOBS[job_id] = st
+                    await _push_job_event(
+                        job_id,
+                        {
+                            "type": "ocr_progress",
+                            "status": "started",
+                            "filename": filename,
+                        },
+                    )
+                    try:
+                        # 동기 OCR을 스레드로 돌려 event loop block을 줄임
+                        result = await asyncio.to_thread(
+                            clova_service.process_file,
+                            file_bytes,
+                            filename,
+                            _progress_cb,
+                        )
+                        if not isinstance(result, dict) or result.get("status") == "error":
+                            msg = (result or {}).get("message") if isinstance(result, dict) else "OCR 실패"
+                            raise RuntimeError(msg or "OCR 실패")
+
+                        # 사용량 DB 저장
+                        page_count = result.get("page_count", 1)
+                        add_ocr_usage(email_norm, page_count)
+
+                        st = _OCR_JOBS.get(job_id)
+                        if st:
+                            st.status = "done"
+                            st.updated_at = time.time()
+                            st.result = result
+                            _OCR_JOBS[job_id] = st
+                        await _push_job_event(
+                            job_id,
+                            {
+                                "type": "ocr_progress",
+                                "status": "done",
+                                "filename": filename,
+                                "page_count": page_count,
+                            },
+                        )
+                    except Exception as e:
+                        st = _OCR_JOBS.get(job_id)
+                        if st:
+                            st.status = "error"
+                            st.updated_at = time.time()
+                            st.error = str(e)
+                            _OCR_JOBS[job_id] = st
+                        await _push_job_event(
+                            job_id,
+                            {
+                                "type": "ocr_progress",
+                                "status": "error",
+                                "filename": filename,
+                                "message": str(e),
+                            },
+                        )
+
+            loop.create_task(_run_job())
+            return {
+                "status": "accepted",
+                "job_id": job_id,
+                "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS),
+            }
+
+        # 기본(동기): 네이버 OCR + 키워드 추출까지 끝낸 뒤 응답
         result = clova_service.process_file(file_bytes, filename, progress_cb=_progress_cb)
         print(f"ocr 결과:{result}")
 
@@ -287,7 +431,6 @@ async def run_ocr_endpoint(
         page_count = result.get("page_count", 1)
         add_ocr_usage(email_norm, page_count)
 
-        # 응답: 잘린 영역에서 추출한 텍스트(original_text, keywords)만 반환. 이미지 bytes는 반환하지 않음.
         return {"status": "success", "data": result, "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS)}
 
     except Exception as e:

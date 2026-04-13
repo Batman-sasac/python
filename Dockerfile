@@ -9,4 +9,8 @@ COPY . .
 
 # --access-logfile /dev/null: 요청마다 한 줄씩 쌓이는 액세스 로그 비활성화(용량 폭증 방지). 필요 시 리버스 프록시 로그 사용.
 # --log-level: gunicorn 마스터 로그 레벨
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000", "--log-level", "warning", "--access-logfile", "/dev/null"]
+# OCR 처리가 30초를 넘길 수 있어 gunicorn 기본 타임아웃(30s)으로는 502(업스트림 종료) 위험이 큽니다.
+# --timeout: worker가 응답 없이 버틸 수 있는 최대 시간(초)
+# --graceful-timeout: 종료 시 유예 시간(초)
+# --keep-alive: keep-alive 커넥션 유지(초)
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "main:app", "--bind", "0.0.0.0:8000", "--log-level", "warning", "--access-logfile", "/dev/null", "--timeout", "300", "--graceful-timeout", "30", "--keep-alive", "5"]
