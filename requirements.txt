@@ -12,10 +12,6 @@ PyJWT[crypto]
 # 템플릿 (study_app - Jinja2Templates)
 jinja2
 
-# CORS / Flask (weekly_app에서 Flask import)
-flask
-flask-cors
-
 # AI 및 클라우드
 openai
 python-dotenv
@@ -32,6 +28,3 @@ supabase
 
 # GCS (utils/file_handler.py)
 google-cloud-storage
-
-# 테스트
-pytest

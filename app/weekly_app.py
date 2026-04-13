@@ -1,12 +1,9 @@
 # 학습 주기 세팅 및 주마다의 그래프 도출 
 
-from fastapi import APIRouter, Body, HTTPException, Depends, Form
+from fastapi import APIRouter, Depends, Form
 from typing import Optional
-from fastapi.responses import HTMLResponse
-import psycopg2
 import os
 from core.database import supabase
-from flask import Flask, request, jsonify
 from datetime import datetime, date, timedelta
 import calendar
 
