@@ -435,6 +435,17 @@ class CLOVAOCRService:
             timeout_cfg = (connect_timeout, read_timeout)
             started_at = time.time()
 
+            req_id = request_json.get("requestId")
+            logger.info(
+                "[OCR/Clova] http_post_begin request_id=%s pid=%s file=%r bytes=%s timeout_connect=%ss read=%ss",
+                req_id,
+                os.getpid(),
+                filename,
+                len(file_bytes),
+                connect_timeout,
+                read_timeout,
+            )
+
             # 클로바 API 호출
             try:
                 response = requests.post(
@@ -466,6 +477,7 @@ class CLOVAOCRService:
                 return None
             
             if response.status_code == 200:
+                http_ms = (time.time() - started_at) * 1000.0
                 try:
                     result = response.json()
                 except Exception:
@@ -475,6 +487,15 @@ class CLOVAOCRService:
                         (response.text or "")[:2000],
                     )
                     return None
+
+                images_preview = result.get("images", []) or []
+                logger.info(
+                    "[OCR/Clova] http_post_ok request_id=%s pid=%s http_ms=%.1f images_len=%s",
+                    req_id,
+                    os.getpid(),
+                    http_ms,
+                    len(images_preview),
+                )
                 
                 # [핵심] 클로바는 PDF의 각 페이지를 'images' 리스트의 개별 요소로 반환합니다.
                 # Clova OCR 응답:
@@ -538,10 +559,23 @@ class CLOVAOCRService:
         file_bytes: ocr_app에서 전달 — crop 적용 시 잘린 이미지 bytes만 넘어옴.
         """
         total_start = time.time()
+        logger.info(
+            "[OCR] process_file_start pid=%s file=%r bytes=%s",
+            os.getpid(),
+            filename,
+            len(file_bytes),
+        )
         # 1. OCR 텍스트 추출 (전달받은 이미지 = 원본 또는 잘린 영역만)
         extracted = self.extract_text_with_clova(file_bytes, filename, progress_cb=progress_cb)
+        clova_elapsed = time.time() - total_start
 
         if extracted is None:
+            logger.error(
+                "[OCR] process_file_clova_failed pid=%s file=%r clova_elapsed_s=%.2f",
+                os.getpid(),
+                filename,
+                clova_elapsed,
+            )
             return {"status": "error", "message": "OCR 텍스트를 추출하지 못했습니다."}
 
         all_pages_text, all_pages_tables, all_pages_layout = extracted
@@ -595,11 +629,24 @@ class CLOVAOCRService:
         for page_text in all_pages_text:
             all_keywords.append(extract_keywords_from_text(page_text))
         kw_duration = time.time() - kw_start
-        print(f"⏱️ [키워드(형태소 어댑터) 추출 소요 시간]: {kw_duration:.2f}초")
-        
+        logger.info(
+            "[OCR] keywords_done pid=%s file=%r kw_elapsed_s=%.2f pages=%s",
+            os.getpid(),
+            filename,
+            kw_duration,
+            len(all_pages_text),
+        )
+
         total_duration = time.time() - total_start
         page_count = len(all_pages_text)
-        print(f"🚀 [전체 프로세스 총 소요 시간]: {total_duration:.2f}초, 페이지 수: {page_count}")
+        logger.info(
+            "[OCR] process_file_done pid=%s file=%r page_count=%s clova_plus_kw_elapsed_s=%.2f total_s=%.2f",
+            os.getpid(),
+            filename,
+            page_count,
+            clova_elapsed + kw_duration,
+            total_duration,
+        )
         # 3. 최종 결과 반환
         # 프론트(`front/src/api/ocr.ts`)는 다음 우선순위로 데이터를 사용:
         # 1) inner.pages가 배열이면 각 페이지의 original_text/keywords를 합쳐 사용

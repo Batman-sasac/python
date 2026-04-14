@@ -10,6 +10,7 @@ import io
 import json
 import asyncio
 import time
+import logging
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -32,6 +33,8 @@ from service.ocr_usage_service import (
 
 
 from app.security_app import get_current_user
+
+logger = logging.getLogger(__name__)
 
 app = APIRouter(tags=["OCR"])
 
@@ -288,6 +291,17 @@ async def run_ocr_endpoint(
         # 사용량 한도 체크 (OCR 호출 전)
         estimated = estimate_page_count(file_bytes, filename)
 
+        want_async_early = str(async_mode or "").strip().lower() in ("1", "true", "yes", "y")
+        logger.info(
+            "[OCR] request_begin pid=%s mode=%s job_id=%s file=%r bytes=%s est_pages=%s",
+            os.getpid(),
+            "async" if want_async_early else "sync",
+            job_id or "-",
+            filename,
+            len(file_bytes),
+            estimated,
+        )
+
         # 화이트리스트 유저는 사용량 제한 체크를 건너뛰고, 사용량 기록만 유지
         if email_norm not in OCR_UNLIMITED_EMAILS:
             can_use, used = check_can_use(email_norm, estimated)
@@ -306,7 +320,8 @@ async def run_ocr_endpoint(
         #   여기서는 그 콜백에서 WebSocket push를 발생시킨다.
         #
         # 구현 디테일:
-        # - clova_ocr_service는 동기 함수이므로(현재 구조), 여기서 asyncio loop에 task로 enqueue한다.
+        # - clova_ocr_service는 동기 함수이며, OCR은 asyncio.to_thread로 워커 스레드에서 돈다.
+        # - progress_cb는 그 스레드에서 호출되므로 WS 전송은 run_coroutine_threadsafe로 루프에 넣는다.
         # - job_id가 없으면(프론트가 WS를 안 쓰면) 콜백은 noop.
         loop = asyncio.get_running_loop()
 
@@ -320,7 +335,12 @@ async def run_ocr_endpoint(
                 "total_pages": total_pages,
                 "filename": filename,
             }
-            loop.create_task(ocr_ws.send_json(job_id, payload))
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    ocr_ws.send_json(job_id, payload), loop
+                )
+            except Exception:
+                return
 
         want_async = str(async_mode or "").strip().lower() in ("1", "true", "yes", "y")
 
@@ -351,12 +371,20 @@ async def run_ocr_endpoint(
             )
 
             async def _run_job():
+                job_t0 = time.time()
                 async with _OCR_SEM:
                     st = _OCR_JOBS.get(job_id)
                     if st:
                         st.status = "running"
                         st.updated_at = time.time()
                         _OCR_JOBS[job_id] = st
+                    logger.info(
+                        "[OCR] async_job_running job_id=%s pid=%s file=%r bytes=%s",
+                        job_id,
+                        os.getpid(),
+                        filename,
+                        len(file_bytes),
+                    )
                     await _push_job_event(
                         job_id,
                         {
@@ -387,6 +415,15 @@ async def run_ocr_endpoint(
                             st.updated_at = time.time()
                             st.result = result
                             _OCR_JOBS[job_id] = st
+                        elapsed = time.time() - job_t0
+                        logger.info(
+                            "[OCR] async_job_done job_id=%s pid=%s pages=%s elapsed_s=%.2f total_duration=%s",
+                            job_id,
+                            os.getpid(),
+                            page_count,
+                            elapsed,
+                            (result or {}).get("total_duration"),
+                        )
                         await _push_job_event(
                             job_id,
                             {
@@ -397,6 +434,14 @@ async def run_ocr_endpoint(
                             },
                         )
                     except Exception as e:
+                        elapsed = time.time() - job_t0
+                        logger.exception(
+                            "[OCR] async_job_failed job_id=%s pid=%s elapsed_s=%.2f err=%s",
+                            job_id,
+                            os.getpid(),
+                            elapsed,
+                            e,
+                        )
                         st = _OCR_JOBS.get(job_id)
                         if st:
                             st.status = "error"
@@ -420,9 +465,25 @@ async def run_ocr_endpoint(
                 "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS),
             }
 
-        # 기본(동기): 네이버 OCR + 키워드 추출까지 끝낸 뒤 응답
-        result = clova_service.process_file(file_bytes, filename, progress_cb=_progress_cb)
-        print(f"ocr 결과:{result}")
+        # 기본: HTTP는 OCR이 끝날 때까지 열려 있지만, CPU/동기 OCR은 스레드에서 실행해
+        # 이벤트 루프와 다른 API 요청이 같은 워커에서 멈추지 않게 한다.
+        sync_t0 = time.time()
+        result = await asyncio.to_thread(
+            clova_service.process_file,
+            file_bytes,
+            filename,
+            _progress_cb,
+        )
+        sync_elapsed = time.time() - sync_t0
+        logger.info(
+            "[OCR] sync_done pid=%s file=%r bytes=%s elapsed_s=%.2f status=%s total_duration=%s",
+            os.getpid(),
+            filename,
+            len(file_bytes),
+            sync_elapsed,
+            result.get("status") if isinstance(result, dict) else type(result).__name__,
+            (result or {}).get("total_duration") if isinstance(result, dict) else None,
+        )
 
         if result["status"] == "error":
             return result
@@ -434,7 +495,7 @@ async def run_ocr_endpoint(
         return {"status": "success", "data": result, "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS)}
 
     except Exception as e:
-        print(f"서버 내부 에러: {e}")
+        logger.exception("[OCR] endpoint_exception pid=%s err=%s", os.getpid(), e)
         return {"status": "error", "message": str(e)}
 
 
