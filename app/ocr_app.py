@@ -342,7 +342,11 @@ async def run_ocr_endpoint(
             except Exception:
                 return
 
-        want_async = str(async_mode or "").strip().lower() in ("1", "true", "yes", "y")
+        async_raw = str(async_mode or "").strip().lower()
+        force_sync = async_raw in ("0", "false", "no", "n")
+        want_async = (not force_sync) and (
+            async_raw in ("1", "true", "yes", "y") or bool(job_id)
+        )
 
         # (대안) 긴 OCR은 HTTP를 빨리 끝내고, job_id로 결과를 받도록 비동기 모드 제공
         if want_async:
