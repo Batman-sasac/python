@@ -20,3 +20,16 @@ __pycache__/\n*.pyc
 
 __pycache__/
 *.pyc
+
+
+# Mac 시스템 파일
+.DS_Store
+Desktop/
+Documents/
+Downloads/
+Pictures/
+
+# IDE 설정
+.idea/
+.vscode/
+*.code-workspace
