@@ -293,9 +293,10 @@ async def run_ocr_endpoint(
 
         async_raw = str(async_mode or "").strip().lower()
         force_sync = async_raw in ("0", "false", "no", "n")
-        want_async = (not force_sync) and (
-            async_raw in ("1", "true", "yes", "y") or bool(job_id)
-        )
+        # 기본 정책: job_id가 와도 비동기로 전환하지 않는다.
+        # - 프론트가 결과를 HTTP 응답으로 받는 흐름을 깨지 않기 위함
+        # - 비동기는 async_mode=1(true/yes/y)로 명시했을 때만 활성화
+        want_async = (not force_sync) and (async_raw in ("1", "true", "yes", "y"))
         logger.info(
             "[OCR] request_begin pid=%s mode=%s job_id=%s file=%r bytes=%s est_pages=%s",
             os.getpid(),
@@ -329,22 +330,29 @@ async def run_ocr_endpoint(
         # - job_id가 없으면(프론트가 WS를 안 쓰면) 콜백은 noop.
         loop = asyncio.get_running_loop()
 
-        def _progress_cb(page_idx: int, total_pages: int, ok: bool):
-            if not job_id:
-                return
-            payload = {
-                "type": "ocr_progress",
-                "status": "page_done" if ok else "page_error",
-                "page": page_idx + 1,  # 1-based
-                "total_pages": total_pages,
-                "filename": filename,
-            }
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    ocr_ws.send_json(job_id, payload), loop
-                )
-            except Exception:
-                return
+        # 진행률 WS push는 기본 비활성화 (필요 시 환경변수로 켜기)
+        progress_enabled = str(os.getenv("OCR_PROGRESS_WS", "0")).strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+        )
+        _progress_cb = None
+        if progress_enabled and job_id:
+            def _progress_cb(page_idx: int, total_pages: int, ok: bool):
+                payload = {
+                    "type": "ocr_progress",
+                    "status": "page_done" if ok else "page_error",
+                    "page": page_idx + 1,  # 1-based
+                    "total_pages": total_pages,
+                    "filename": filename,
+                }
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        ocr_ws.send_json(job_id, payload), loop
+                    )
+                except Exception:
+                    return
 
         # (대안) 긴 OCR은 HTTP를 빨리 끝내고, job_id로 결과를 받도록 비동기 모드 제공
         if want_async:

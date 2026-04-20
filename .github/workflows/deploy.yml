@@ -45,7 +45,7 @@ jobs:
             export DOCKER_API_VERSION=1.44
 
             echo "📂 프로젝트 폴더 이동"
-            cd $PROJECT_PATH
+            cd /home/ubuntu/python
 
             echo "🔑 .env 파일 생성 및 키 업데이트"
             echo "KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY" > .env
