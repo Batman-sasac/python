@@ -291,11 +291,15 @@ async def run_ocr_endpoint(
         # 사용량 한도 체크 (OCR 호출 전)
         estimated = estimate_page_count(file_bytes, filename)
 
-        want_async_early = str(async_mode or "").strip().lower() in ("1", "true", "yes", "y")
+        async_raw = str(async_mode or "").strip().lower()
+        force_sync = async_raw in ("0", "false", "no", "n")
+        want_async = (not force_sync) and (
+            async_raw in ("1", "true", "yes", "y") or bool(job_id)
+        )
         logger.info(
             "[OCR] request_begin pid=%s mode=%s job_id=%s file=%r bytes=%s est_pages=%s",
             os.getpid(),
-            "async" if want_async_early else "sync",
+            "async" if want_async else "sync",
             job_id or "-",
             filename,
             len(file_bytes),
@@ -341,12 +345,6 @@ async def run_ocr_endpoint(
                 )
             except Exception:
                 return
-
-        async_raw = str(async_mode or "").strip().lower()
-        force_sync = async_raw in ("0", "false", "no", "n")
-        want_async = (not force_sync) and (
-            async_raw in ("1", "true", "yes", "y") or bool(job_id)
-        )
 
         # (대안) 긴 OCR은 HTTP를 빨리 끝내고, job_id로 결과를 받도록 비동기 모드 제공
         if want_async:
@@ -435,6 +433,8 @@ async def run_ocr_endpoint(
                                 "status": "done",
                                 "filename": filename,
                                 "page_count": page_count,
+                                # GET /ocr/job/{job_id} 의 data 와 동일 (프론트가 WS만으로 결과 표시 가능)
+                                "data": result,
                             },
                         )
                     except Exception as e:

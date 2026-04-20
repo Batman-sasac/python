@@ -1,19 +1,12 @@
-version: "3"
-
+version: '3.8'
 services:
   api:
     build: .
-    container_name: fastapi_app
-    restart: always
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      # 프로덕션은 WARNING 권장 (디스크·Docker 로그 절약)
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    restart: always
+    # 메모리 제한 (t3.micro 보호용)
+    deploy:
+      resources:
+        limits:
+          memory: 800M
