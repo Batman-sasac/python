@@ -105,10 +105,13 @@ def root():
 
 
 @app.get("/config")
-async def get_config():
+async def get_config(request: Request):
     """프론트엔드 OAuth 설정 (환경변수에서 로드)"""
-
-    base_url = os.getenv("API_BASE_URL", "http://54.206.80.239:8000")
+    # 운영에서 IP/도메인이 바뀌어도 혼동이 없도록, 기본은 "요청이 들어온 호스트"를 따른다.
+    # 환경변수(API_BASE_URL)를 주면 그 값을 우선한다.
+    base_url = os.getenv("API_BASE_URL")
+    if not base_url:
+        base_url = str(request.base_url).rstrip("/")
 
     return {
         "kakao_rest_api_key": os.getenv("KAKAO_REST_API_KEY"),
