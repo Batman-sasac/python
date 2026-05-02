@@ -26,10 +26,8 @@ jobs:
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-          KAKAO_REDIRECT_URI: ${{ secrets.KAKAO_REDIRECT_URI }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          NAVER_REDIRECT_URI: ${{ secrets.NAVER_REDIRECT_URI }}
           CLOVA_OCR_SECRET: ${{ secrets.CLOVA_OCR_SECRET }}
           CLOVA_OCR_URL: ${{ secrets.CLOVA_OCR_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -51,10 +49,8 @@ jobs:
             echo "KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY" > .env
             echo "KAKAO_REST_API_KEY=$KAKAO_REST_API_KEY" >> .env
             echo "KAKAO_CLIENT_SECRET=$KAKAO_CLIENT_SECRET" >> .env
-            echo "KAKAO_REDIRECT_URI=$KAKAO_REDIRECT_URI" >> .env
             echo "NAVER_CLIENT_ID=$NAVER_CLIENT_ID" >> .env
             echo "NAVER_CLIENT_SECRET=$NAVER_CLIENT_SECRET" >> .env
-            echo "NAVER_REDIRECT_URI=$NAVER_REDIRECT_URI" >> .env
             echo "CLOVA_OCR_SECRET=$CLOVA_OCR_SECRET" >> .env
             echo "CLOVA_OCR_URL=$CLOVA_OCR_URL" >> .env
             echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env

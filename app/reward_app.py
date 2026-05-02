@@ -215,6 +215,47 @@ async def random_event_reward(email: str = Depends(get_current_user)):
         return {"status": "error", "message": str(e)}
 
 
+# --- 본인 리워드 순위만 조회 (인증 필요) ---
+@app.get("/reward/my-rank")
+async def get_my_reward_rank(email: str = Depends(get_current_user)):
+    """
+    users.points 기준 전체 순위 중 본인 순위만 반환.
+    동점은 같은 순위(공동 1위 등), 그 다음 순위는 건너뜀 (예: 1, 1, 3).
+    """
+    try:
+        user_res = (
+            supabase.table("users")
+            .select("points")
+            .eq("email", email)
+            .single()
+            .execute()
+        )
+        if not user_res.data:
+            return {"status": "error", "message": "사용자를 찾을 수 없습니다."}
+
+        my_points = int(user_res.data.get("points") or 0)
+
+        higher_res = (
+            supabase.table("users")
+            .select("id", count="exact")
+            .gt("points", my_points)
+            .execute()
+        )
+        above = getattr(higher_res, "count", None)
+        if above is None:
+            above = len(higher_res.data or [])
+
+        rank = above + 1
+        return {
+            "status": "success",
+            "rank": rank,
+            "total_reward": my_points,
+        }
+    except Exception as e:
+        print(f"❌ 내 리워드 순위 조회 오류: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # --- 총 리워드 상위 5명 조회 API ---
 @app.get("/reward/leaderboard")
 async def get_reward_leaderboard():
