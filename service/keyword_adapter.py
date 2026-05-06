@@ -48,6 +48,37 @@ _KO_STOPWORDS = {
     "때문",
 }
 
+# 형태소 분석기(Kiwi) 없이 regex fallback을 쓸 때,
+# 동사/형용사 원형(…다)이나 서술어 계열이 섞이는 것을 줄이기 위한 휴리스틱 필터.
+_KO_VERBLIKE_SUFFIXES = (
+    "하다",
+    "되다",
+    "이다",
+    "있다",
+    "없다",
+    "같다",
+)
+
+
+def _is_verb_like_fallback(word: str) -> bool:
+    """
+    Kiwi가 없을 때(=품사 태깅 불가) 조사 제거 후 토큰이 동사/형용사로 보이면 제외한다.
+    - OCR 텍스트는 종종 '…했다/…된다/…이다' 같은 서술어를 그대로 포함한다.
+    - 명사 키워드만 원하는 요구에 맞춰 보수적으로 필터링한다.
+    """
+    if not word:
+        return False
+    if word in _KO_VERBLIKE_SUFFIXES:
+        return True
+    for suf in _KO_VERBLIKE_SUFFIXES:
+        if word.endswith(suf) and len(word) <= 12:
+            return True
+    # '…다'로 끝나는 짧은 어절은 서술어일 확률이 높다 (예: 빠르다, 넓다)
+    if word.endswith("다") and len(word) <= 6:
+        return True
+    return False
+
+
 _EN_STOPWORDS = {
     "the",
     "and",
@@ -132,6 +163,8 @@ def _extract_korean_candidates_fallback(text: str, top_k: int, kiwi) -> list[str
             continue
         w = strip_josa(kiwi, w)
         if not w or len(w) < 2:
+            continue
+        if _is_verb_like_fallback(w):
             continue
         if w in _KO_STOPWORDS:
             continue

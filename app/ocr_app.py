@@ -33,6 +33,7 @@ from service.ocr_usage_service import (
 
 
 from app.security_app import get_current_user
+from service.keyword_adapter import extract_keywords_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,31 @@ class QuizSaveRequest(BaseModel):
     # 사용자 작성 답변 (빈칸 순서대로)
     user_answers: Optional[List[str]] = None
     quiz: Optional[Union[Dict[str, str], str]] = None
+
+
+# OCR 없이 키워드 추출만 테스트용
+class KeywordExtractRequest(BaseModel):
+    text: str
+    top_k_korean: Optional[int] = None
+    top_k_english: Optional[int] = None
+
+
+@app.post("/ocr/keywords")
+async def extract_keywords_endpoint(
+    payload: KeywordExtractRequest,
+    email: str = Depends(get_current_user),
+):
+    _ = email  # 인증만 통과시키기
+    try:
+        kw = extract_keywords_from_text(
+            payload.text or "",
+            top_k_korean=int(payload.top_k_korean or 40),
+            top_k_english=int(payload.top_k_english or 30),
+        )
+        return {"status": "success", "keywords": kw}
+    except Exception as e:
+        logger.exception("[OCR] keywords_endpoint_exception pid=%s err=%s", os.getpid(), e)
+        return {"status": "error", "message": str(e)}
 
 
 # OCR 사용량 조회 API (50회 도달 시 한도 메시지 반환)
