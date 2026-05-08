@@ -526,6 +526,34 @@ async def run_ocr_endpoint(
         if result["status"] == "error":
             return result
 
+        # 반환 직전: original_text / keywords가 제대로 내려가는지 확인용 요약 로그
+        # - 로그 폭주 방지: 페이지는 최대 10개만, 텍스트는 앞 200자만 기록
+        try:
+            pages = (result or {}).get("pages") if isinstance(result, dict) else None
+            pages = pages if isinstance(pages, list) else []
+            logger.info(
+                "[OCR] return_preview file=%r page_count=%s pages_len=%s",
+                filename,
+                (result or {}).get("page_count") if isinstance(result, dict) else None,
+                len(pages),
+            )
+            for i, p in enumerate(pages[:10]):
+                if not isinstance(p, dict):
+                    continue
+                text = (p.get("original_text") or "")
+                kw = p.get("keywords") or []
+                kw = kw if isinstance(kw, list) else []
+                logger.info(
+                    "[OCR] return_page page=%s text_len=%s keywords_n=%s keywords_top=%s",
+                    i + 1,
+                    len(text),
+                    len(kw),
+                    kw[:20],
+                )
+                logger.info("[OCR] return_text_head page=%s head=%r", i + 1, text[:200])
+        except Exception as e:
+            logger.exception("[OCR] return_preview_failed file=%r err=%s", filename, e)
+
         # 사용량 DB 저장
         page_count = result.get("page_count", 1)
         add_ocr_usage(email_norm, page_count)
