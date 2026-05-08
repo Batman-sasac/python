@@ -161,6 +161,7 @@ class PageItem(BaseModel):
     tables: Optional[List[OcrTableBlock]] = None
     layout_blocks: Optional[List[LayoutBlock]] = None
     blank_candidates: Optional[List[BlankCandidate]] = None
+    keyword_positions: Optional[List[Dict[str, Any]]] = None
 
 
 class BlankItem(BaseModel):

@@ -19,6 +19,87 @@ from service.keyword_adapter import extract_keywords_from_text
 logger = logging.getLogger(__name__)
 
 
+def _norm_for_match(s: str) -> str:
+    """키워드/박스 텍스트 매칭용 정규화: 공백/개행/특수문자를 줄이고 소문자화."""
+    if not s:
+        return ""
+    s2 = re.sub(r"\s+", "", str(s)).lower()
+    # 한글/영문/숫자만 남기고 제거 (OCR 잡음/구두점 영향 최소화)
+    s2 = re.sub(r"[^0-9a-z가-힣]", "", s2)
+    return s2
+
+
+def build_keyword_positions_from_layout(keywords, layout_blocks, page_index: int):
+    """
+    키워드(명사) 리스트를 layout_blocks(텍스트+좌표) 중 가장 잘 맞는 박스에 매칭해
+    프론트 좌표 하이라이트용 목록을 만든다.
+
+    규칙:
+    - 포함 매칭 우선: norm(block.text)에 norm(keyword)가 포함되는 박스를 후보로
+    - 후보가 여러 개면 "가장 짧은 박스 텍스트"를 우선 (딱 맞는 박스일 확률↑)
+      동률이면 reading order(앞에 나온 박스) 우선
+    - 매칭 실패 키워드는 제외 (프론트에서 텍스트 기반 fallback 가능)
+    """
+    if not keywords or not layout_blocks:
+        return []
+
+    # 사전 정규화
+    blocks = []
+    for idx, b in enumerate(layout_blocks):
+        if not isinstance(b, dict):
+            continue
+        text = (b.get("text") or "").strip()
+        if not text:
+            continue
+        blocks.append(
+            {
+                "idx": idx,
+                "text": text,
+                "norm": _norm_for_match(text),
+                "x": float(b.get("x", 0)),
+                "y": float(b.get("y", 0)),
+                "width": float(b.get("width", 0)),
+                "height": float(b.get("height", 0)),
+            }
+        )
+
+    if not blocks:
+        return []
+
+    out = []
+    seen = set()
+    for kw in keywords:
+        word = (str(kw) if kw is not None else "").strip()
+        if not word:
+            continue
+        if word in seen:
+            continue
+        seen.add(word)
+
+        nkw = _norm_for_match(word)
+        if not nkw:
+            continue
+
+        candidates = [b for b in blocks if nkw and nkw in b["norm"]]
+        if not candidates:
+            continue
+
+        # 가장 짧은 텍스트(정규화 기준) → 딱 맞는 박스 선호, 동률이면 idx(읽기순) 작은 것
+        best = min(candidates, key=lambda b: (len(b["norm"]), b["idx"]))
+        out.append(
+            {
+                "id": f"{page_index}-{best['idx']}-{word}",
+                "word": word,
+                "page_index": page_index,
+                "x": best["x"],
+                "y": best["y"],
+                "width": best["width"],
+                "height": best["height"],
+            }
+        )
+    return out
+
+
 def _cell_infer_text(cell):
     """Clova General OCR 표 셀: cellTextLines[].cellWords[].inferText"""
     lines = cell.get("cellTextLines") or []
@@ -663,6 +744,7 @@ class CLOVAOCRService:
                     "tables": tables,
                     "layout_blocks": layout,
                     "blank_candidates": build_blank_candidates_from_layout(layout, i),
+                    "keyword_positions": build_keyword_positions_from_layout(keywords, layout, i),
                 }
                 for i, (text, keywords, tables, layout) in enumerate(
                     zip(
