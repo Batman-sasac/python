@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 
 from service.josa_strip import strip_josa
 
@@ -18,6 +19,9 @@ try:
     from kiwipiepy import Kiwi  # type: ignore
 except Exception:  # pragma: no cover
     Kiwi = None
+
+logger = logging.getLogger(__name__)
+_BACKEND_LOGGED = False
 
 _EN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z\-\']{1,}")
 
@@ -195,10 +199,22 @@ def extract_keywords_from_text(
     if Kiwi is not None:
         try:
             kiwi = Kiwi()
+            global _BACKEND_LOGGED
+            if not _BACKEND_LOGGED:
+                logger.info("[KW] backend=kiwi")
+                _BACKEND_LOGGED = True
             ko = _extract_korean_nouns_kiwi(safe_text, top_k=top_k_korean, kiwi=kiwi)
         except Exception:
+            global _BACKEND_LOGGED
+            if not _BACKEND_LOGGED:
+                logger.info("[KW] backend=fallback (kiwi_init_or_analyze_failed)")
+                _BACKEND_LOGGED = True
             ko = _extract_korean_candidates_fallback(safe_text, top_k=top_k_korean, kiwi=None)
     else:
+        global _BACKEND_LOGGED
+        if not _BACKEND_LOGGED:
+            logger.info("[KW] backend=fallback (kiwi_not_installed)")
+            _BACKEND_LOGGED = True
         ko = _extract_korean_candidates_fallback(safe_text, top_k=top_k_korean, kiwi=None)
 
     seen: set[str] = set()
