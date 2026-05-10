@@ -188,6 +188,8 @@ def extract_keywords_from_text(
     """
     OCR 페이지 텍스트 → 키워드 문자열 리스트 (한글 명사 위주 + 영어 단어).
     """
+    global _BACKEND_LOGGED
+
     max_chars = int(os.getenv("OCR_KEYWORDS_MAX_CHARS", "20000"))
     safe_text = text or ""
     if max_chars > 0 and len(safe_text) > max_chars:
@@ -199,19 +201,16 @@ def extract_keywords_from_text(
     if Kiwi is not None:
         try:
             kiwi = Kiwi()
-            global _BACKEND_LOGGED
             if not _BACKEND_LOGGED:
                 logger.info("[KW] backend=kiwi")
                 _BACKEND_LOGGED = True
             ko = _extract_korean_nouns_kiwi(safe_text, top_k=top_k_korean, kiwi=kiwi)
         except Exception:
-            global _BACKEND_LOGGED
             if not _BACKEND_LOGGED:
                 logger.info("[KW] backend=fallback (kiwi_init_or_analyze_failed)")
                 _BACKEND_LOGGED = True
             ko = _extract_korean_candidates_fallback(safe_text, top_k=top_k_korean, kiwi=None)
     else:
-        global _BACKEND_LOGGED
         if not _BACKEND_LOGGED:
             logger.info("[KW] backend=fallback (kiwi_not_installed)")
             _BACKEND_LOGGED = True
