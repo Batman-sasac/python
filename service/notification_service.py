@@ -6,16 +6,41 @@
 """
 import logging
 import re
+import time
 import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import os
 
+import httpx
 import requests
 
 from core.database import supabase
 
 logger = logging.getLogger(__name__)
+
+
+def _supabase_execute_with_connect_retry(request_builder, *, attempts: int = 4, base_delay: float = 0.8):
+    """DNS·TCP 일시 실패(ConnectError 등) 시 지수 백오프로 재시도. 스케줄러 분 단위 호출에 맞춤."""
+    last: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            return request_builder.execute()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            last = e
+            if attempt + 1 >= attempts:
+                raise
+            delay = base_delay * (2**attempt)
+            logger.warning(
+                "Supabase 연결 실패, %.1fs 후 재시도 (%d/%d): %s",
+                delay,
+                attempt + 1,
+                attempts,
+                e,
+            )
+            time.sleep(delay)
+    assert last is not None
+    raise last
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
@@ -261,7 +286,7 @@ def check_and_send_reminders():
         select_cols_with_sent = "email, fcm_token, remind_sent_at, remind_time"
         if simulate:
             base_filter = supabase.table("users").select(select_cols).not_.is_("remind_time", "null")
-            response = base_filter.execute()
+            response = _supabase_execute_with_connect_retry(base_filter)
             rows_raw = response.data or []
             rows = [u for u in rows_raw if _is_notify_on(u.get("is_notify"))]
             if not rows and rows_raw:
@@ -270,13 +295,13 @@ def check_and_send_reminders():
         else:
             if _remind_sent_at_available is False:
                 base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
-                response = base_filter.execute()
+                response = _supabase_execute_with_connect_retry(base_filter)
                 rows = response.data or []
                 use_sent = False
             else:
                 try:
                     base_filter = supabase.table("users").select(select_cols_with_sent).eq("is_notify", True)
-                    response = base_filter.execute()
+                    response = _supabase_execute_with_connect_retry(base_filter)
                     rows = response.data or []
                     use_sent = True
                 except Exception as e:
@@ -286,7 +311,7 @@ def check_and_send_reminders():
                             "users.remind_sent_at 컬럼 없음 — 이번 회차는 발송 기록 없이 진행."
                         )
                         base_filter = supabase.table("users").select(select_cols).eq("is_notify", True)
-                        response = base_filter.execute()
+                        response = _supabase_execute_with_connect_retry(base_filter)
                         rows = response.data or []
                         use_sent = False
                     else:
@@ -326,7 +351,9 @@ def check_and_send_reminders():
             if ok:
                 if use_sent and _remind_sent_at_available is not False:
                     try:
-                        supabase.table("users").update({"remind_sent_at": today}).eq("email", email).execute()
+                        _supabase_execute_with_connect_retry(
+                            supabase.table("users").update({"remind_sent_at": today}).eq("email", email)
+                        )
                     except Exception as e:
                         if _is_remind_sent_at_missing_error(e):
                             _remind_sent_at_available = False

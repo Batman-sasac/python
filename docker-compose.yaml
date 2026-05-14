@@ -4,7 +4,11 @@ services:
     ports:
       - "8000:8000"
     restart: always
-    # 메모리 제한 (t3.micro 보호용)
+    # Supabase 등 외부 호스트 이름 해석 실패(EAI_AGAIN) 완화 — 호스트/기본 DNS가 불안정할 때
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # 메모리 제한 (t3.micro 보호용) — Swarm이 아니면 적용되지 않을 수 있음. 필요 시 mem_limit 사용 검토
     deploy:
       resources:
         limits:
