@@ -708,6 +708,7 @@ class CLOVAOCRService:
         kw_start = time.time()
         all_keywords: list[list[str]] = []
         for page_text in all_pages_text:
+            # top_k 미지정 → keyword_adapter 기본(전체). 필요 시 OCR_KEYWORDS_TOP_K_* 환경 변수
             all_keywords.append(extract_keywords_from_text(page_text))
         kw_duration = time.time() - kw_start
         logger.info(

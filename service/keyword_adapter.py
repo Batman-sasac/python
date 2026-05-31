@@ -363,14 +363,20 @@ def _extract_korean_candidates_fallback(text: str, top_k: int, kiwi) -> list[str
 def extract_keywords_from_text(
     text: str,
     *,
-    top_k_korean: int = 40,
-    top_k_english: int = 30,
+    top_k_korean: int | None = None,
+    top_k_english: int | None = None,
 ) -> list[str]:
     """
     OCR 페이지 텍스트 → 키워드 문자열 리스트 (한글 명사 위주 + 영어 단어).
-    top_k_korean / top_k_english 가 0 이하이면 해당 언어 키워드를 전부 반환한다.
+    top_k_korean / top_k_english 가 None·0 이하면 해당 언어 키워드를 전부 반환한다.
+    환경 변수 OCR_KEYWORDS_TOP_K_KOREAN / OCR_KEYWORDS_TOP_K_ENGLISH 로 기본 상한 조정 가능(0=전체).
     """
     global _BACKEND_LOGGED
+
+    if top_k_korean is None:
+        top_k_korean = int(os.getenv("OCR_KEYWORDS_TOP_K_KOREAN", "0"))
+    if top_k_english is None:
+        top_k_english = int(os.getenv("OCR_KEYWORDS_TOP_K_ENGLISH", "0"))
 
     max_chars = int(os.getenv("OCR_KEYWORDS_MAX_CHARS", "20000"))
     safe_text = text or ""
