@@ -64,6 +64,9 @@ jobs:
             echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
             echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" >> .env
             echo "FIREBASE_CREDENTIALS='$FIREBASE_CREDENTIALS'" >> .env
+            echo "RANDOM_EVENT_ENABLED=1" >> .env
+            echo "RANDOM_EVENT_PROB=0.15" >> .env
+            echo "RANDOM_EVENT_SEED=default" >> .env
 
             echo "📥 최신 코드 pull"
             git pull origin main

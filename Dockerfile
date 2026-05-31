@@ -21,6 +21,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. 소스 코드 전체 복사
 COPY . .
 
-# 5. 실행 명령어 (Gunicorn 환경)
+# 5. 랜덤 이벤트 리워드 (docker-compose .env 또는 -e 로 덮어쓸 수 있음)
+ENV RANDOM_EVENT_ENABLED=1
+ENV RANDOM_EVENT_PROB=0.15
+ENV RANDOM_EVENT_SEED=default
+
+# 6. 실행 명령어 (Gunicorn 환경)
 # main:app -> main.py 파일 안에 있는 app 객체를 실행하라는 뜻
 CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app", "--timeout", "120"]
