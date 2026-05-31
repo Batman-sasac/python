@@ -1,7 +1,8 @@
 """
 OCR 결과 텍스트에서 키워드 목록을 만드는 어댑터.
 
-- 기본: Kiwi 형태소(명사) + 영어 단어 후보 (외부 LLM 비용 없음)
+- 기본: Kiwi 형태소(명사) + 연속 명사/접사 재결합(복합어) + 영어 단어 후보
+- 복합어: NNG/NNP 연속 구간과 명사 접사(XSN: 적·성·화 등)를 원문과 대조해 한 덩어리로 복원
 - `kiwipiepy` 미설치 시 한글은 정규식·빈도 기반 fallback
 - 키워드 후보마다 `service.josa_strip`으로 조사 제거
 
@@ -24,6 +25,28 @@ logger = logging.getLogger(__name__)
 _BACKEND_LOGGED = False
 
 _EN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z\-\']{1,}")
+_WS_RE = re.compile(r"\s+")
+# 원문 span에 있으면 복합어 후보에서 제외 (줄바꿈·구두점 등)
+_COMPOUND_SPAN_BREAK_RE = re.compile(r"[\n\r\t,;:\(\)\[\]{}·|/\\<>\"'`!?…]")
+
+# Kiwi XSN 중 복합 명사를 이루는 접사 (과목·도메인 공통)
+_COMPOUND_XSN_FORMS = frozenset(
+    {
+        "적",
+        "성",
+        "화",
+        "식",
+        "률",
+        "력",
+        "형",
+        "겹",
+        "용",
+        "도",
+        "점",
+        "량",
+        "자",
+    }
+)
 
 _KO_STOPWORDS = {
     "것",
@@ -113,6 +136,166 @@ _EN_STOPWORDS = {
 }
 
 
+def _appears_in_text(word: str, text: str) -> bool:
+    w = (word or "").strip()
+    return len(w) >= 2 and w in (text or "")
+
+
+def _is_morpheme_mergeable(tag: str, form: str) -> bool:
+    if tag in ("NNG", "NNP", "NR", "NNB"):
+        return True
+    if tag == "XSN" and form in _COMPOUND_XSN_FORMS:
+        return True
+    return False
+
+
+def _compound_from_token_run(tokens) -> str:
+    return "".join((getattr(t, "form", "") or "").strip() for t in tokens)
+
+
+def _tokens_are_contiguous(text: str, run) -> bool:
+    for i in range(len(run) - 1):
+        prev_end = getattr(run[i], "start", 0) + getattr(run[i], "len", 0)
+        next_start = getattr(run[i + 1], "start", 0)
+        if next_start > prev_end and text[prev_end:next_start]:
+            return False
+    return True
+
+
+def _keyword_from_token_run(text: str, run) -> str | None:
+    if len(run) < 2:
+        return None
+    if not _tokens_are_contiguous(text, run):
+        return None
+    start = getattr(run[0], "start", None)
+    end_tok = run[-1]
+    end = getattr(end_tok, "start", None)
+    length = getattr(end_tok, "len", None)
+    if start is None or end is None or length is None:
+        merged = _compound_from_token_run(run)
+        return merged if _is_valid_korean_keyword(merged) and _appears_in_text(merged, text) else None
+    span = text[start : end + length]
+    if _COMPOUND_SPAN_BREAK_RE.search(span):
+        return None
+    cleaned = _WS_RE.sub("", span)
+    if not _is_valid_korean_keyword(cleaned):
+        return None
+    return cleaned
+
+
+def _iter_compound_runs(tokens, text: str):
+    run: list = []
+    pending_prefix = None
+
+    def flush():
+        nonlocal run, pending_prefix
+        if len(run) >= 2:
+            yielded = list(run)
+            run.clear()
+            pending_prefix = None
+            return yielded
+        run.clear()
+        pending_prefix = None
+        return None
+
+    for tok in tokens:
+        form = (getattr(tok, "form", "") or "").strip()
+        tag = getattr(tok, "tag", "") or ""
+
+        if tag == "XPN" and not run:
+            pending_prefix = tok
+            continue
+
+        if _is_morpheme_mergeable(tag, form):
+            if pending_prefix is not None:
+                run.append(pending_prefix)
+                pending_prefix = None
+            if run and not _tokens_are_contiguous(text, run + [tok]):
+                done = flush()
+                if done:
+                    yield done
+            run.append(tok)
+            continue
+
+        done = flush()
+        if done:
+            yield done
+        if tag == "XPN":
+            pending_prefix = tok
+        else:
+            pending_prefix = None
+
+    done = flush()
+    if done:
+        yield done
+
+
+def _is_valid_korean_keyword(word: str) -> bool:
+    if not word or len(word) < 2 or len(word) > 24:
+        return False
+    if word in _KO_STOPWORDS:
+        return False
+    return True
+
+
+def _add_korean_freq(
+    freq: dict[str, int],
+    word: str,
+    text: str,
+    *,
+    kiwi=None,
+    strip: bool = True,
+) -> None:
+    w = (word or "").strip()
+    if strip:
+        w = strip_josa(kiwi, w)
+    if not _is_valid_korean_keyword(w):
+        return
+    if not _appears_in_text(w, text):
+        return
+    freq[w] = freq.get(w, 0) + 1
+
+
+def _has_independent_occurrence(short: str, long: str, text: str) -> bool:
+    """short가 long의 부분 문자열이어도, text 안에서 long 밖에 solo로 있으면 True."""
+    if not short or short not in long:
+        return True
+    idx = 0
+    while True:
+        pos = text.find(short, idx)
+        if pos < 0:
+            return False
+        in_long = False
+        lidx = 0
+        while True:
+            lpos = text.find(long, lidx)
+            if lpos < 0:
+                break
+            if lpos <= pos < lpos + len(long):
+                in_long = True
+                break
+            lidx = lpos + 1
+        if not in_long:
+            return True
+        idx = pos + 1
+
+
+def _select_top_korean(freq: dict[str, int], top_k: int, text: str) -> list[str]:
+    """빈도·길이 순 정렬 후, 더 긴 키워드에 완전히 흡수된 부분 문자열만 제외. top_k<=0 이면 전체."""
+    items = sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))
+    out: list[str] = []
+    for w, _ in items:
+        if any(
+            w != sel and w in sel and not _has_independent_occurrence(w, sel, text)
+            for sel in out
+        ):
+            continue
+        out.append(w)
+        if top_k > 0 and len(out) >= top_k:
+            break
+    return out
+
+
 def _extract_english_candidates(text: str, top_k: int) -> list[str]:
     if not text:
         return []
@@ -128,7 +311,9 @@ def _extract_english_candidates(text: str, top_k: int) -> list[str]:
             continue
         freq[ww] = freq.get(ww, 0) + 1
     items = sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))
-    return [w for w, _ in items[: max(0, top_k)]]
+    if top_k <= 0:
+        return [w for w, _ in items]
+    return [w for w, _ in items[:top_k]]
 
 
 def _extract_korean_nouns_kiwi(text: str, top_k: int, kiwi) -> list[str]:
@@ -137,21 +322,18 @@ def _extract_korean_nouns_kiwi(text: str, top_k: int, kiwi) -> list[str]:
     freq: dict[str, int] = {}
     for sent in kiwi.analyze(text, normalize_coda=True):
         tokens = sent[0] if isinstance(sent, (list, tuple)) and sent else []
+        for run in _iter_compound_runs(tokens, text):
+            compound = _keyword_from_token_run(text, run)
+            if compound:
+                freq[compound] = freq.get(compound, 0) + 1
         for tok in tokens:
             form = getattr(tok, "form", "") or ""
             tag = getattr(tok, "tag", "") or ""
             if tag not in ("NNG", "NNP"):
                 continue
             w = strip_josa(kiwi, form.strip())
-            if len(w) < 2:
-                continue
-            if w in _KO_STOPWORDS:
-                continue
-            if len(w) > 24:
-                continue
-            freq[w] = freq.get(w, 0) + 1
-    items = sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))
-    return [w for w, _ in items[: max(0, top_k)]]
+            _add_korean_freq(freq, w, text, kiwi=kiwi, strip=False)
+    return _select_top_korean(freq, top_k, text)
 
 
 def _extract_korean_candidates_fallback(text: str, top_k: int, kiwi) -> list[str]:
@@ -174,9 +356,8 @@ def _extract_korean_candidates_fallback(text: str, top_k: int, kiwi) -> list[str
             continue
         if len(w) > 24:
             continue
-        freq[w] = freq.get(w, 0) + 1
-    items = sorted(freq.items(), key=lambda kv: (-kv[1], -len(kv[0]), kv[0]))
-    return [w for w, _ in items[: max(0, top_k)]]
+        _add_korean_freq(freq, w, text, kiwi=kiwi, strip=False)
+    return _select_top_korean(freq, top_k, text)
 
 
 def extract_keywords_from_text(
@@ -187,6 +368,7 @@ def extract_keywords_from_text(
 ) -> list[str]:
     """
     OCR 페이지 텍스트 → 키워드 문자열 리스트 (한글 명사 위주 + 영어 단어).
+    top_k_korean / top_k_english 가 0 이하이면 해당 언어 키워드를 전부 반환한다.
     """
     global _BACKEND_LOGGED
 

@@ -26,6 +26,7 @@ from .ocr_ws import OcrWsManager
 from service.ocr_usage_service import (
     OCR_PAGE_LIMIT,
     estimate_page_count,
+    get_effective_ocr_page_limit,
     get_user_ocr_usage,
     add_ocr_usage,
     check_can_use,
@@ -199,12 +200,15 @@ async def extract_keywords_endpoint(
 ):
     _ = email  # 인증만 통과시키기
     try:
+        # 테스트용: top_k 미지정 또는 0 이하 → 전체 키워드 반환
+        top_k_korean = 0 if payload.top_k_korean is None else int(payload.top_k_korean)
+        top_k_english = 0 if payload.top_k_english is None else int(payload.top_k_english)
         kw = extract_keywords_from_text(
             payload.text or "",
-            top_k_korean=int(payload.top_k_korean or 40),
-            top_k_english=int(payload.top_k_english or 30),
+            top_k_korean=top_k_korean,
+            top_k_english=top_k_english,
         )
-        return {"status": "success", "keywords": kw}
+        return {"status": "success", "keywords": kw, "count": len(kw)}
     except Exception as e:
         logger.exception("[OCR] keywords_endpoint_exception pid=%s err=%s", os.getpid(), e)
         return {"status": "error", "message": str(e)}
@@ -219,10 +223,12 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
     """
     email_norm = _normalize_email(email)
     used = get_user_ocr_usage(email_norm)
+    effective_limit = get_effective_ocr_page_limit(email_norm)
+    # 프론트 계약: pages_limit 은 항상 OCR_PAGE_LIMIT(50)
+    remaining = max(0, OCR_PAGE_LIMIT - used)
 
     # 화이트리스트 유저는 한도 메시지 없이 항상 사용 가능
     if email_norm in OCR_UNLIMITED_EMAILS:
-        remaining = max(0, OCR_PAGE_LIMIT - used)
         return {
             "status": "ok",
             "pages_used": used,
@@ -231,9 +237,7 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
             "is_unlimited": True,
         }
 
-    remaining = max(0, OCR_PAGE_LIMIT - used)
-
-    if used >= OCR_PAGE_LIMIT:
+    if used >= effective_limit:
         return {
             "status": "limit_reached",
             "message": "이용가능한 무료 횟수를 다 사용하셨습니다",

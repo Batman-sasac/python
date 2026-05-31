@@ -23,6 +23,28 @@ def estimate_page_count(file_bytes: bytes, filename: str) -> int:
     return 1
 
 
+def get_user_ocr_page_limit(email: str) -> int:
+    """회원별 OCR 페이지 상한(DB). 없으면 OCR_PAGE_LIMIT."""
+    try:
+        res = (
+            supabase.table("users")
+            .select("ocr_page_limit")
+            .eq("email", email)
+            .single()
+            .execute()
+        )
+        if res.data and res.data.get("ocr_page_limit") is not None:
+            return int(res.data["ocr_page_limit"])
+    except Exception:
+        pass
+    return OCR_PAGE_LIMIT
+
+
+def get_effective_ocr_page_limit(email: str) -> int:
+    """서버 차단·IAP 반영 상한. 프론트 응답의 pages_limit 은 OCR_PAGE_LIMIT 그대로 유지."""
+    return max(OCR_PAGE_LIMIT, get_user_ocr_page_limit(email))
+
+
 def get_user_ocr_usage(email: str) -> int:
     """회원의 현재 OCR 페이지 사용량 반환"""
     try:
@@ -53,4 +75,5 @@ def check_can_use(email: str, estimated_pages: int = 1) -> Tuple[bool, int]:
     Returns: (사용가능 여부, 현재 사용량)
     """
     used = get_user_ocr_usage(email)
-    return (used + estimated_pages <= OCR_PAGE_LIMIT, used)
+    limit = get_effective_ocr_page_limit(email)
+    return (used + estimated_pages <= limit, used)
