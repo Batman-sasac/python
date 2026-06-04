@@ -28,8 +28,6 @@ from app import (
     user_app,
     weekly_app,
 )
-from app.apple_pay import payments_app
-from app.iap import iap_app
 from app.auth import kakao_login_app, naver_login_app, apple_login_app
 from app.hint import hint_app
 from app.firebase_app import app as firebase_app
@@ -58,8 +56,18 @@ app.include_router(ocr_app.app)
 app.include_router(study_app.app)
 app.include_router(hint_app.app)
 app.include_router(notification_app.app)
-app.include_router(payments_app.app)
-app.include_router(iap_app.app)
+try:
+    from app.apple_pay import payments_app
+
+    app.include_router(payments_app.app)
+except ImportError:
+    logger.info("app.apple_pay 없음 — 결제 라우터 생략 (모듈 push 후 사용)")
+try:
+    from app.iap import iap_app
+
+    app.include_router(iap_app.app)
+except ImportError:
+    logger.info("app.iap 없음 — IAP 라우터 생략 (모듈 push 후 사용)")
 app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
 app.include_router(firebase_app)
