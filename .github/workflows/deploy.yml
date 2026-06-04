@@ -9,83 +9,125 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    # GitHub Secrets → job env (이 블록이 시크릿을 스크립트 $변수로 넘김)
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+      PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+      KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+      KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+      KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+      KAKAO_REDIRECT_URI: ${{ secrets.KAKAO_REDIRECT_URI }}
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
+      NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+      NAVER_REDIRECT_URI: ${{ secrets.NAVER_REDIRECT_URI }}
+      NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+      CLOVA_OCR_SECRET: ${{ secrets.CLOVA_OCR_SECRET }}
+      CLOVA_OCR_URL: ${{ secrets.CLOVA_OCR_URL }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+      FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v3
+
+      - name: ✅ GitHub Secrets 로드 확인 (값은 로그에 안 찍음)
+        run: |
+          set -e
+          check_secret() {
+            name="$1"
+            val="$2"
+            if [ -z "$val" ]; then
+              echo "::error::Secret '$name' 이 비어 있습니다. Repo → Settings → Secrets → Actions"
+              exit 1
+            fi
+            echo "$name: OK (length=${#val})"
+          }
+          check_secret "EC2_HOST" "$EC2_HOST"
+          check_secret "EC2_USER" "$EC2_USER"
+          check_secret "EC2_SSH_KEY" "${{ secrets.EC2_SSH_KEY }}"
+          check_secret "SUPABASE_URL" "$SUPABASE_URL"
+          check_secret "SUPABASE_ANON_KEY" "$SUPABASE_ANON_KEY"
+          if [[ "$SUPABASE_URL" == SUPABASE_URL=* ]]; then
+            echo "::error::SUPABASE_URL Secret 값에 'SUPABASE_URL=' 접두사가 포함됨. URL만 넣으세요 (https://....supabase.co)"
+            exit 1
+          fi
+          case "$SUPABASE_URL" in
+            https://*.supabase.co) echo "SUPABASE_URL 형식 OK" ;;
+            *) echo "::warning::SUPABASE_URL이 https://....supabase.co 형태가 아닙니다" ;;
+          esac
 
       - name: 🔐 Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: 🚀 Deploy to EC2
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
-          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
-          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
-          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
-          KAKAO_REDIRECT_URI: ${{ secrets.KAKAO_REDIRECT_URI }}
-          API_BASE_URL: ${{ secrets.API_BASE_URL }}
-          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
-          NAVER_REDIRECT_URI: ${{ secrets.NAVER_REDIRECT_URI }}
-          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
-          CLOVA_OCR_SECRET: ${{ secrets.CLOVA_OCR_SECRET }}
-          CLOVA_OCR_URL: ${{ secrets.CLOVA_OCR_URL }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # Secrets(권장). Variables 탭만 쓰면 secrets가 비어 .env에 빈 값이 들어갑니다.
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || vars.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
-          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
-          FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
+      - name: 📝 .env 파일 생성 (Actions 러너에서 Secrets → 파일)
         run: |
-          if [ -z "$SUPABASE_URL" ]; then
-            echo "::error::SUPABASE_URL이 비어 있습니다. GitHub → Settings → Secrets and variables → Actions → Secrets 에 SUPABASE_URL 을 추가하세요. (Variables 탭만 넣으면 deploy.yml 이 읽지 못합니다)"
-            exit 1
-          fi
-          ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
-            set -e
+          set -e
+          umask 077
+          cat > .env.deploy <<ENVEOF
+          KAKAO_NATIVE_APP_KEY=${KAKAO_NATIVE_APP_KEY}
+          KAKAO_REST_API_KEY=${KAKAO_REST_API_KEY}
+          KAKAO_CLIENT_SECRET=${KAKAO_CLIENT_SECRET}
+          KAKAO_REDIRECT_URI=${KAKAO_REDIRECT_URI}
+          API_BASE_URL=${API_BASE_URL}
+          NAVER_CLIENT_ID=${NAVER_CLIENT_ID}
+          NAVER_REDIRECT_URI=${NAVER_REDIRECT_URI}
+          NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET}
+          CLOVA_OCR_SECRET=${CLOVA_OCR_SECRET}
+          CLOVA_OCR_URL=${CLOVA_OCR_URL}
+          OPENAI_API_KEY=${OPENAI_API_KEY}
+          SUPABASE_URL=${SUPABASE_URL}
+          SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+          SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+          JWT_SECRET_KEY=${JWT_SECRET_KEY}
+          FIREBASE_CREDENTIALS=${FIREBASE_CREDENTIALS}
+          RANDOM_EVENT_ENABLED=1
+          RANDOM_EVENT_PROB=0.15
+          RANDOM_EVENT_SEED=default
+          ENVEOF
+          # heredoc 들여쓰기 제거
+          sed -i 's/^          //' .env.deploy
+          echo "SUPABASE_URL in file: $(grep -c '^SUPABASE_URL=https' .env.deploy || true) line(s)"
 
-            # 💡 도커 API 버전 호환성 문제 해결을 위한 환경변수 설정
-            export DOCKER_API_VERSION=1.44
+      - name: 🔌 EC2 SSH 연결 테스트
+        run: |
+          set -e
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=20 -o BatchMode=yes"
+          echo "SSH target: ${EC2_USER}@${EC2_HOST}"
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" "echo 'SSH OK'; hostname"
 
-            echo "📂 프로젝트 폴더 이동"
-            cd /home/ubuntu/python
+      - name: 🚀 Deploy to EC2
+        run: |
+          set -e
+          SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30 -o BatchMode=yes"
+          REMOTE_DIR="${PROJECT_PATH:-/home/ubuntu/python}"
 
-            echo "🔑 .env 파일 생성 및 키 업데이트"
-            echo "KAKAO_NATIVE_APP_KEY=$KAKAO_NATIVE_APP_KEY" > .env
-            echo "KAKAO_REST_API_KEY=$KAKAO_REST_API_KEY" >> .env
-            echo "KAKAO_CLIENT_SECRET=$KAKAO_CLIENT_SECRET" >> .env
-            echo "KAKAO_REDIRECT_URI=$KAKAO_REDIRECT_URI" >> .env
-            echo "API_BASE_URL=$API_BASE_URL" >> .env
-            echo "NAVER_CLIENT_ID=$NAVER_CLIENT_ID" >> .env
-            echo "NAVER_REDIRECT_URI=$NAVER_REDIRECT_URI" >> .env
-            echo "NAVER_CLIENT_SECRET=$NAVER_CLIENT_SECRET" >> .env
-            echo "CLOVA_OCR_SECRET=$CLOVA_OCR_SECRET" >> .env
-            echo "CLOVA_OCR_URL=$CLOVA_OCR_URL" >> .env
-            echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
-            echo "SUPABASE_URL=$SUPABASE_URL" >> .env
-            echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
-            echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY" >> .env
-            echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" >> .env
-            echo "FIREBASE_CREDENTIALS='$FIREBASE_CREDENTIALS'" >> .env
-            echo "RANDOM_EVENT_ENABLED=1" >> .env
-            echo "RANDOM_EVENT_PROB=0.15" >> .env
-            echo "RANDOM_EVENT_SEED=default" >> .env
+          echo "📤 .env 업로드 → ${REMOTE_DIR}/.env"
+          scp $SSH_OPTS .env.deploy "${EC2_USER}@${EC2_HOST}:${REMOTE_DIR}/.env"
 
-            echo "📥 최신 코드 pull"
-            git pull origin main
+          ssh $SSH_OPTS "${EC2_USER}@${EC2_HOST}" bash -s <<EOF
+          set -e
+          export DOCKER_API_VERSION=1.44
+          cd ${REMOTE_DIR}
 
-            echo "🧹 서버 용량 확보 (미사용 도커 리소스 삭제)"
-            # 사용하지 않는 컨테이너, 네트워크, 이미지, 빌드 캐시를 강제로 삭제하여 용량 확보
-            docker system prune -af
+          echo "🔍 서버 .env Supabase 확인"
+          grep '^SUPABASE_URL=' .env | sed 's/=.*$/=***masked***/'
 
-            echo "🐳 도커 빌드 및 재시작"
-            # 용량이 부족할 때는 build와 up을 동시에 하는 것이 안전할 수 있습니다.
-            docker compose down
-            docker compose up --build -d
+          echo "📥 최신 코드 pull"
+          git pull origin main
 
-            echo "✅ 모든 환경변수가 반영되어 배포가 완료되었습니다!"
+          echo "🧹 서버 용량 확보 (미사용 도커 리소스 삭제)"
+          docker system prune -af
+
+          echo "🐳 도커 빌드 및 재시작"
+          docker compose down
+          docker compose up --build -d
+
+          echo "✅ 배포 완료"
           EOF
