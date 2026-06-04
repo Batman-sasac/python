@@ -34,11 +34,17 @@ jobs:
           CLOVA_OCR_SECRET: ${{ secrets.CLOVA_OCR_SECRET }}
           CLOVA_OCR_URL: ${{ secrets.CLOVA_OCR_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Secrets(권장). Variables 탭만 쓰면 secrets가 비어 .env에 빈 값이 들어갑니다.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || vars.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
           JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
           FIREBASE_CREDENTIALS: ${{ secrets.FIREBASE_CREDENTIALS }}
         run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "::error::SUPABASE_URL이 비어 있습니다. GitHub → Settings → Secrets and variables → Actions → Secrets 에 SUPABASE_URL 을 추가하세요. (Variables 탭만 넣으면 deploy.yml 이 읽지 못합니다)"
+            exit 1
+          fi
           ssh -o StrictHostKeyChecking=no $EC2_USER@$EC2_HOST << EOF
             set -e
 
@@ -62,6 +68,7 @@ jobs:
             echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
             echo "SUPABASE_URL=$SUPABASE_URL" >> .env
             echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY" >> .env
             echo "JWT_SECRET_KEY=$JWT_SECRET_KEY" >> .env
             echo "FIREBASE_CREDENTIALS='$FIREBASE_CREDENTIALS'" >> .env
             echo "RANDOM_EVENT_ENABLED=1" >> .env

@@ -1,19 +1,7 @@
 """
 FastAPI routers package.
 
-`main.py` imports routers via `from app import ...`, so this file must exist
-to make `app/` a proper Python package in all environments (local, Docker, prod).
+`main.py` uses `from app import notification_app` — each submodule is loaded on
+demand; do not import routers here (importing `app.logging_config` would
+otherwise pull in `core.database` before `load_dotenv()` in `main.py`).
 """
-
-from . import notification_app, ocr_app, reports_app, reward_app, study_app, user_app, weekly_app
-
-__all__ = [
-    "notification_app",
-    "ocr_app",
-    "reports_app",
-    "reward_app",
-    "study_app",
-    "user_app",
-    "weekly_app",
-]
-

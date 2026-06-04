@@ -4,10 +4,10 @@ import logging
 import os
 from typing import Optional
 
-from dotenv import load_dotenv
+from core.env_loader import load_project_dotenv, supabase_env_status
 
-load_dotenv()
-from app.logging_config import configure_logging
+load_project_dotenv()
+from app.logging_config import configure_logging, silence_noisy_loggers
 
 configure_logging()
 
@@ -28,11 +28,13 @@ from app import (
     user_app,
     weekly_app,
 )
+from app.apple_pay import payments_app
+from app.iap import iap_app
 from app.auth import kakao_login_app, naver_login_app, apple_login_app
 from app.hint import hint_app
 from app.firebase_app import app as firebase_app
 from app.reward_app import check_attendance_and_reward
-from service.notification_service import check_and_send_reminders, is_notification_simulation
+from service.notification_service import check_and_send_reminders
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,8 @@ app.include_router(ocr_app.app)
 app.include_router(study_app.app)
 app.include_router(hint_app.app)
 app.include_router(notification_app.app)
+app.include_router(payments_app.app)
+app.include_router(iap_app.app)
 app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
 app.include_router(firebase_app)
@@ -77,7 +81,25 @@ scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 @app.on_event("startup")
 def start_scheduler():
-    """매 분 DB에서 알림 대상 조회 → remind_time과 현재 시각(KST) 일치 시 Expo Push 발송."""
+    """5분마다 DB에서 알림 대상 조회 → remind_time과 현재 시각(KST) 일치 시 Expo Push 발송."""
+    # gunicorn/uvicorn 워커 기동 후에도 APScheduler·httpx 반복 INFO 로그 차단
+    silence_noisy_loggers()
+    status = supabase_env_status()
+    if not status["supabase_url_set"] or not status["supabase_key_set"]:
+        logger.error(
+            "Supabase 환경변수 미설정 — env_file=%s exists=%s url_set=%s key_set=%s "
+            "(GitHub Secrets·deploy 후 .env 확인, 호스트 uvicorn은 git pull 필요)",
+            status["env_file"],
+            status["env_file_exists"],
+            status["supabase_url_set"],
+            status["supabase_key_set"],
+        )
+    else:
+        logger.info(
+            "Supabase env OK — host=%s env_file=%s",
+            status["supabase_url_host"],
+            status["env_file"],
+        )
     scheduler.add_job(
         check_and_send_reminders,
         "cron",
@@ -86,13 +108,6 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-    sim_val = os.getenv("NOTIFICATION_SIMULATE", "")
-    mode = "시뮬레이션(DB 갱신 없음)" if is_notification_simulation() else "실제 발송"
-    logger.info(
-        "알림 스케줄러 시작 (5분마다) mode=%s NOTIFICATION_SIMULATE=%r",
-        mode,
-        sim_val,
-    )
    
 
 
