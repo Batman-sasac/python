@@ -26,6 +26,9 @@ _BACKEND_LOGGED = False
 
 _EN_WORD_RE = re.compile(r"[A-Za-z][A-Za-z\-\']{1,}")
 _WS_RE = re.compile(r"\s+")
+# 붙어 있으면 한 덩어리(100), 사이에 글자/공백이 있으면 각각(1, 2) — 원문 기준
+_NUMBER_SPAN_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")
+_DIGIT_ONLY_RE = re.compile(r"^[\d,\.]+$")
 # 원문 span에 있으면 복합어 후보에서 제외 (줄바꿈·구두점 등)
 _COMPOUND_SPAN_BREAK_RE = re.compile(r"[\n\r\t,;:\(\)\[\]{}·|/\\<>\"'`!?…]")
 
@@ -296,6 +299,45 @@ def _select_top_korean(freq: dict[str, int], top_k: int, text: str) -> list[str]
     return out
 
 
+def _find_number_spans(text: str) -> list[str]:
+    """원문에 연속으로 붙은 숫자만 통째로 추출. 떨어져 있으면 각각 별도 span."""
+    if not text:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _NUMBER_SPAN_RE.finditer(text):
+        raw = m.group(0)
+        if not raw or raw in seen:
+            continue
+        seen.add(raw)
+        out.append(raw)
+    return out
+
+
+def _filter_digit_fragment_keywords(words: list[str], text: str) -> list[str]:
+    """
+    형태소 경로에서 잘린 숫자 조각(100 → 1,0,0) 제거.
+    원문에 더 긴 연속 숫자 span이 있으면 그 부분만 버리고, 떨어진 숫자는 유지.
+    """
+    spans = _find_number_spans(text)
+    span_set = set(spans)
+
+    out: list[str] = []
+    for w in words:
+        if not w:
+            continue
+        if not _DIGIT_ONLY_RE.match(w):
+            out.append(w)
+            continue
+        if w in span_set:
+            out.append(w)
+            continue
+        if any(w in s and w != s for s in spans):
+            continue
+        out.append(w)
+    return out
+
+
 def _extract_english_candidates(text: str, top_k: int) -> list[str]:
     if not text:
         return []
@@ -404,11 +446,14 @@ def extract_keywords_from_text(
             _BACKEND_LOGGED = True
         ko = _extract_korean_candidates_fallback(safe_text, top_k=top_k_korean, kiwi=None)
 
+    numbers = _find_number_spans(safe_text)
+
     seen: set[str] = set()
     out: list[str] = []
-    for w in ko + en:
+    for w in numbers + ko + en:
         if w in seen:
             continue
         seen.add(w)
         out.append(w)
-    return out
+
+    return _filter_digit_fragment_keywords(out, safe_text)
