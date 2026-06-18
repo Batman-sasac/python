@@ -5,6 +5,7 @@ from typing import Tuple
 from core.database import supabase
 from pypdf import PdfReader
 from app.security_app import get_current_user
+from service.subscription_service import is_subscription_active
 
 
 # 회원당 Clova OCR 페이지 사용 한도
@@ -75,5 +76,8 @@ def check_can_use(email: str, estimated_pages: int = 1) -> Tuple[bool, int]:
     Returns: (사용가능 여부, 현재 사용량)
     """
     used = get_user_ocr_usage(email)
+    # 구독(자동 갱신) 활성 사용자는 페이지 한도 없음 — 사용량 기록은 유지
+    if is_subscription_active(email):
+        return (True, used)
     limit = get_effective_ocr_page_limit(email)
     return (used + estimated_pages <= limit, used)

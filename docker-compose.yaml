@@ -3,6 +3,9 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      # 프로덕션은 WARNING 권장 (5분 스케줄·httpx 등 반복 로그 절약)
+      LOG_LEVEL: ${LOG_LEVEL:-WARNING}
     ports:
       - "8000:8000"
     restart: always
@@ -15,3 +18,8 @@ services:
       resources:
         limits:
           memory: 800M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

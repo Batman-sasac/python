@@ -16,7 +16,6 @@ jinja2
 openai
 python-dotenv
 kiwipiepy
-
 # PDF 및 이미지
 pdf2image
 pillow

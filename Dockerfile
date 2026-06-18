@@ -28,4 +28,6 @@ ENV RANDOM_EVENT_SEED=default
 
 # 6. 실행 명령어 (Gunicorn 환경)
 # main:app -> main.py 파일 안에 있는 app 객체를 실행하라는 뜻
-CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app", "--timeout", "120"]
+# --access-logfile /dev/null: 요청마다 쌓이는 액세스 로그 비활성화
+# --log-level warning: gunicorn/워커 기본 로그 최소화 (앱 로그는 LOG_LEVEL로 제어)
+CMD ["gunicorn", "-w", "1", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "main:app", "--timeout", "120", "--log-level", "warning", "--access-logfile", "/dev/null"]

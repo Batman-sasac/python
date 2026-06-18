@@ -57,12 +57,6 @@ app.include_router(study_app.app)
 app.include_router(hint_app.app)
 app.include_router(notification_app.app)
 try:
-    from app.apple_pay import payments_app
-
-    app.include_router(payments_app.app)
-except ImportError:
-    logger.info("app.apple_pay 없음 — 결제 라우터 생략 (모듈 push 후 사용)")
-try:
     from app.iap import iap_app
 
     app.include_router(iap_app.app)

@@ -35,6 +35,7 @@ from service.ocr_usage_service import (
 
 from app.security_app import get_current_user
 from service.keyword_adapter import extract_keywords_from_text
+from service.subscription_service import is_subscription_active
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,13 @@ OCR_UNLIMITED_EMAILS = {
 
 def _normalize_email(value: Optional[str]) -> str:
     return (value or "").strip().lower()
+
+
+def _is_unlimited_user(email_norm: str) -> bool:
+    """화이트리스트 또는 구독(자동 갱신) 활성 사용자는 OCR 한도 없음."""
+    if email_norm in OCR_UNLIMITED_EMAILS:
+        return True
+    return is_subscription_active(email_norm)
 
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
@@ -227,8 +235,8 @@ async def get_ocr_usage(email: str = Depends(get_current_user)):
     # 프론트 계약: pages_limit 은 항상 OCR_PAGE_LIMIT(50)
     remaining = max(0, OCR_PAGE_LIMIT - used)
 
-    # 화이트리스트 유저는 한도 메시지 없이 항상 사용 가능
-    if email_norm in OCR_UNLIMITED_EMAILS:
+    # 화이트리스트·구독 활성 유저는 한도 메시지 없이 항상 사용 가능
+    if _is_unlimited_user(email_norm):
         return {
             "status": "ok",
             "pages_used": used,
@@ -339,6 +347,7 @@ async def run_ocr_endpoint(
         )
 
         # 화이트리스트 유저는 사용량 제한 체크를 건너뛰고, 사용량 기록만 유지
+        # (구독 활성 사용자는 check_can_use 내부에서 무제한 처리)
         if email_norm not in OCR_UNLIMITED_EMAILS:
             can_use, used = check_can_use(email_norm, estimated)
             if not can_use:
@@ -505,7 +514,7 @@ async def run_ocr_endpoint(
             return {
                 "status": "accepted",
                 "job_id": job_id,
-                "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS),
+                "is_unlimited": _is_unlimited_user(email_norm),
             }
 
         # 기본: HTTP는 OCR이 끝날 때까지 열려 있지만, CPU/동기 OCR은 스레드에서 실행해
@@ -563,7 +572,7 @@ async def run_ocr_endpoint(
         page_count = result.get("page_count", 1)
         add_ocr_usage(email_norm, page_count)
 
-        return {"status": "success", "data": result, "is_unlimited": (email_norm in OCR_UNLIMITED_EMAILS)}
+        return {"status": "success", "data": result, "is_unlimited": _is_unlimited_user(email_norm)}
 
     except Exception as e:
         logger.exception("[OCR] endpoint_exception pid=%s err=%s", os.getpid(), e)
