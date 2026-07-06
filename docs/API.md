@@ -100,6 +100,18 @@ Expo 푸시 토큰 저장 (iOS, `ExponentPushToken[...]` 형식만 허용).
 
 ---
 
+## 카테고리 (`/categories`)
+
+`ocr_data.subject_name` 컬럼을 카테고리로 사용합니다. 별도 테이블 없음.
+
+| Method | Path | 설명 | Request | Response |
+|--------|------|------|---------|----------|
+| POST | `/categories` | 학습에 카테고리 지정·변경 | JSON: `{ "quiz_id": number, "subject_name": string }` | `{ "status", "message", "data": { "quiz_id", "subject_name" } }` |
+| PATCH | `/categories/rename` | 카테고리 이름 일괄 변경 | JSON: `{ "old_name": string, "new_name": string }` | `{ "status", "message", "updated_count" }` |
+| GET | `/categories` | 내 카테고리 목록 (ocr_data 기준) | - | `{ "status", "data": [{ "name", "count" }] }` |
+
+---
+
 ## 신고 (`/reports`)
 
 | Method | Path | 설명 | Request | Response |

@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import (
+    category_app,
     notification_app,
     ocr_app,
     reports_app,
@@ -66,6 +67,7 @@ app.include_router(reward_app.app)
 app.include_router(weekly_app.app)
 app.include_router(firebase_app)
 app.include_router(reports_app.app)
+app.include_router(category_app.app)
 
 # 앱과 통신 허용 (CORS)
 app.add_middleware(

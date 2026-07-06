@@ -31,5 +31,6 @@ Pictures/
 
 # IDE 설정
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
 *.code-workspace
