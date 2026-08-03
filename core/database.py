@@ -5,7 +5,7 @@ from typing import Any
 import psycopg2
 from supabase import Client, create_client
 
-from core.env_loader import load_project_dotenv
+from core.env_loader import load_project_dotenv, supabase_api_key
 
 load_project_dotenv()
 
@@ -14,9 +14,7 @@ logger = logging.getLogger(__name__)
 
 def _supabase_credentials() -> tuple[str, str]:
     url = (os.getenv("SUPABASE_URL") or "").strip()
-    key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
-    ).strip()
+    key = supabase_api_key()
     return url, key
 
 
@@ -38,8 +36,8 @@ class _LazySupabase:
             )
         if not key:
             raise RuntimeError(
-                "Supabase API 키가 비어 있습니다. SUPABASE_SERVICE_ROLE_KEY 또는 "
-                "SUPABASE_ANON_KEY를 설정하세요."
+                "Supabase API 키가 비어 있습니다. SUPABASE_SERVICE_ROLE_KEY, "
+                "SUPABASE_SECRET_KEY 또는 SUPABASE_ANON_KEY를 설정하세요."
             )
 
         self._client = create_client(url, key)

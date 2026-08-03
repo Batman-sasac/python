@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import (
     category_app,
+    coupon_app,
     notification_app,
     ocr_app,
     reports_app,
@@ -68,6 +69,7 @@ app.include_router(weekly_app.app)
 app.include_router(firebase_app)
 app.include_router(reports_app.app)
 app.include_router(category_app.app)
+app.include_router(coupon_app.app)
 
 # 앱과 통신 허용 (CORS)
 app.add_middleware(
@@ -104,6 +106,17 @@ def start_scheduler():
             status["supabase_url_host"],
             status["env_file"],
         )
+    if os.getenv("AUTO_SYNC_DB_SCHEMA", "").lower() in ("1", "true", "yes"):
+        try:
+            from core.db_sync import ensure_coupon_tables
+
+            ensure_coupon_tables()
+            logger.info("AUTO_SYNC_DB_SCHEMA: 쿠폰 테이블 확인 완료")
+        except Exception:
+            logger.exception(
+                "AUTO_SYNC_DB_SCHEMA 실패 — SUPABASE_DB_URL 설정 후 "
+                "python scripts/sync_supabase_schema.py 실행"
+            )
     scheduler.add_job(
         check_and_send_reminders,
         "cron",

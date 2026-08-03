@@ -20,13 +20,23 @@ def load_project_dotenv() -> Path:
     return _ENV_FILE
 
 
+def supabase_api_key() -> str:
+    """REST API용 Supabase 키 (service_role 우선)."""
+    import os
+
+    return (
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_SECRET_KEY")  # .env 별칭 (구 naming)
+        or os.getenv("SUPABASE_ANON_KEY")
+        or ""
+    ).strip()
+
+
 def supabase_env_status() -> dict[str, bool | str]:
     import os
 
     url = (os.getenv("SUPABASE_URL") or "").strip()
-    key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or ""
-    ).strip()
+    key = supabase_api_key()
     return {
         "env_file": str(_ENV_FILE),
         "env_file_exists": _ENV_FILE.is_file(),
