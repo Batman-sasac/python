@@ -4,4 +4,4 @@
 alter table users
     add column if not exists ocr_page_limit int;
 
--- 기본값은 코드에서 OCR_PAGE_LIMIT(50) 사용. null = 기본 50.
+-- 기본값은 코드에서 플랜별 월간 한도 사용. null = 보너스 0.

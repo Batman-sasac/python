@@ -252,7 +252,7 @@ def get_subscription_for_user(email: str) -> Optional[dict]:
 
 
 def is_subscription_active(email: str) -> bool:
-    """구독 혜택(OCR 무제한) 유효 여부. active/grace_period + 만료 전."""
+    """구독 혜택(플랜 OCR 한도) 유효 여부. active/grace_period + 만료 전."""
     sub = get_subscription_for_user(email)
     if not sub:
         return False

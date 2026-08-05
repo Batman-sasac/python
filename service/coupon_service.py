@@ -9,10 +9,11 @@ from typing import Optional
 from core.entities.coupon import OCR_COUPON_PAGE_BONUS
 from core.database import supabase
 from service.ocr_usage_service import (
+    add_ocr_page_bonus,
     get_effective_ocr_page_limit,
     get_user_ocr_usage,
-    OCR_PAGE_LIMIT,
 )
+from service.plan_service import get_plan_ocr_limit
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +74,8 @@ def _validate_coupon(coupon: dict, email: str) -> None:
 
 
 def _apply_ocr_pages(email: str, pages: int) -> int:
-    """ocr_page_limit에 pages를 더하고 새 한도를 반환."""
-    current_limit = get_effective_ocr_page_limit(email)
-    new_limit = current_limit + pages
-    try:
-        supabase.table("users").update({"ocr_page_limit": new_limit}).eq("email", email).execute()
-    except Exception as e:
-        err = str(e)
-        if "ocr_page_limit" in err and ("PGRST204" in err or "schema cache" in err):
-            raise CouponRedeemError(
-                "users.ocr_page_limit 컬럼이 없습니다. "
-                "Supabase SQL Editor에서 sql/users_ocr_page_limit.sql 을 실행하세요.",
-                status_code=503,
-            ) from e
-        raise
-    return new_limit
+    """현재 주기 플랜 한도 위 보너스 추가 (주기 종료 시 리셋)."""
+    return add_ocr_page_bonus(email, pages)
 
 
 def redeem_coupon(email: str, code: str) -> dict:
@@ -118,7 +106,10 @@ def redeem_coupon(email: str, code: str) -> dict:
         raise CouponRedeemError("유효하지 않은 쿠폰입니다.")
 
     coupon_id = coupon["id"]
-    new_limit = _apply_ocr_pages(email, OCR_COUPON_PAGE_BONUS)
+    try:
+        new_limit = _apply_ocr_pages(email, OCR_COUPON_PAGE_BONUS)
+    except RuntimeError as e:
+        raise CouponRedeemError(str(e), status_code=503) from e
 
     supabase.table("coupon_redemptions").insert(
         {
@@ -149,5 +140,5 @@ def redeem_coupon(email: str, code: str) -> dict:
         "ocr_page_limit": new_limit,
         "pages_used": used,
         "pages_remaining": max(0, new_limit - used),
-        "base_limit": OCR_PAGE_LIMIT,
+        "base_limit": get_plan_ocr_limit(email),
     }

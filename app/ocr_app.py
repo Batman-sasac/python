@@ -13,7 +13,7 @@ import time
 import logging
 from fastapi import APIRouter, UploadFile, File, Form, Body, Depends, Query
 from fastapi import WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Dict, List, Optional, Any, Union
 import os
 from PIL import Image
@@ -24,22 +24,53 @@ from .ocr_ws import OcrWsManager
 
 
 from service.ocr_usage_service import (
-    OCR_PAGE_LIMIT,
     estimate_page_count,
     get_effective_ocr_page_limit,
+    get_ocr_usage_summary,
     get_user_ocr_usage,
     add_ocr_usage,
     check_can_use,
 )
-
-
 from app.security_app import get_current_user
 from service.keyword_adapter import extract_keywords_from_text
-from service.subscription_service import is_subscription_active
 
 logger = logging.getLogger(__name__)
 
 app = APIRouter(tags=["OCR"])
+
+
+class OcrUsageResponse(BaseModel):
+    """OCR 사용량 + 플랜 요약 (월간 주기)."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "status": "ok",
+                "pages_used": 5,
+                "pages_limit": 20,
+                "plan_limit": 20,
+                "page_bonus": 0,
+                "remaining": 15,
+                "plan": "free",
+                "product_id": None,
+                "is_subscribed": False,
+                "period_ends_at": "2026-08-31T15:00:00Z",
+            }
+        }
+    )
+
+    status: str = Field(description="ok | limit_reached")
+    pages_used: int = Field(description="현재 주기 OCR 사용 페이지 수")
+    pages_limit: int = Field(description="월간 총 상한 (plan_limit + page_bonus)")
+    plan_limit: int = Field(description="플랜 기본 월간 한도 (free=20, basic=100, pro=250)")
+    page_bonus: int = Field(description="쿠폰 등으로 추가된 월간 보너스 페이지")
+    remaining: int = Field(description="현재 주기 남은 페이지")
+    plan: str = Field(description="free | basic | pro")
+    product_id: Optional[str] = Field(None, description="활성 구독 Product ID (없으면 null)")
+    is_subscribed: bool = Field(description="Apple IAP 구독 활성 여부")
+    period_ends_at: str = Field(description="현재 사용 주기 종료 시각 (ISO 8601). 이후 사용량 리셋")
+    message: Optional[str] = Field(None, description="limit_reached 시 안내 메시지")
+    is_unlimited: Optional[bool] = Field(None, description="화이트리스트 무제한 사용자만 true")
 
 # OCR 무료 사용량 제한을 적용하지 않을 유저 이메일 화이트리스트
 OCR_UNLIMITED_EMAILS = {
@@ -54,10 +85,8 @@ def _normalize_email(value: Optional[str]) -> str:
 
 
 def _is_unlimited_user(email_norm: str) -> bool:
-    """화이트리스트 또는 구독(자동 갱신) 활성 사용자는 OCR 한도 없음."""
-    if email_norm in OCR_UNLIMITED_EMAILS:
-        return True
-    return is_subscription_active(email_norm)
+    """화이트리스트 사용자만 OCR 한도 없음 (구독은 플랜별 페이지 한도 적용)."""
+    return email_norm in OCR_UNLIMITED_EMAILS
 
 # GPT 서비스 초기화
 API_KEY = os.getenv("OPENAI_API_KEY")
@@ -222,44 +251,48 @@ async def extract_keywords_endpoint(
         return {"status": "error", "message": str(e)}
 
 
-# OCR 사용량 조회 API (50회 도달 시 한도 메시지 반환)
-@app.get("/ocr/usage")
+@app.get(
+    "/ocr/usage",
+    response_model=OcrUsageResponse,
+    summary="OCR 사용량·플랜 조회",
+    description=(
+        "현재 로그인 사용자의 **월간 OCR 사용량**과 **플랜**을 반환합니다.\n\n"
+        "**플랜 (월간 지급)**\n"
+        "- `free`: 20페이지/월 (구독 없음, 기본)\n"
+        "- `basic`: 100페이지/월 (`APPLE_PLAN_BASIC_PRODUCT_IDS` 구독)\n"
+        "- `pro`: 250페이지/월 (`APPLE_PLAN_PRO_PRODUCT_IDS` 구독)\n"
+        "- 쿠폰: `page_bonus`로 **현재 주기만** +20페이지 (다음 달/갱신 시 소멸)\n\n"
+        "**주기 리셋**: `period_ends_at` 이후 `pages_used`가 0으로 리셋됩니다.\n"
+        "- free: 매월 1일 00:00 KST\n"
+        "- 구독: Apple `expires_at` 갱신 주기\n\n"
+        "구독 반영은 `POST /iap/verify-subscription` 호출 후 확인하세요."
+    ),
+    responses={
+        401: {"description": "JWT 없음 또는 만료"},
+    },
+)
 async def get_ocr_usage(email: str = Depends(get_current_user)):
-    """
-    회원의 OCR 사용량 조회.
-    pages_used >= 50 이면 "이용가능한 무료 횟수를 다 사용하셨습니다" 반환.
-    """
     email_norm = _normalize_email(email)
-    used = get_user_ocr_usage(email_norm)
-    effective_limit = get_effective_ocr_page_limit(email_norm)
-    # 프론트 계약: pages_limit 은 항상 OCR_PAGE_LIMIT(50)
-    remaining = max(0, OCR_PAGE_LIMIT - used)
+    summary = get_ocr_usage_summary(email_norm)
+    used = summary["pages_used"]
+    limit = summary["pages_limit"]
+    remaining = summary["remaining"]
 
-    # 화이트리스트·구독 활성 유저는 한도 메시지 없이 항상 사용 가능
     if _is_unlimited_user(email_norm):
         return {
             "status": "ok",
-            "pages_used": used,
-            "pages_limit": OCR_PAGE_LIMIT,
-            "remaining": remaining,
+            **summary,
             "is_unlimited": True,
         }
 
-    if used >= effective_limit:
+    if used >= limit:
         return {
             "status": "limit_reached",
             "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
-            "pages_used": used, # 사용량
-            "pages_limit": OCR_PAGE_LIMIT,
-            "remaining": 0, # 남은 횟수
+            **summary,
+            "remaining": 0,
         }
-    print(f"✅ OCR 사용량 조회: {used}")
-    return {
-        "status": "ok",
-        "pages_used": used,
-        "pages_limit": OCR_PAGE_LIMIT,
-        "remaining": remaining,
-    }
+    return {"status": "ok", **summary}
 
 
 # 예상 소요 시간 반환
@@ -347,15 +380,15 @@ async def run_ocr_endpoint(
         )
 
         # 화이트리스트 유저는 사용량 제한 체크를 건너뛰고, 사용량 기록만 유지
-        # (구독 활성 사용자는 check_can_use 내부에서 무제한 처리)
         if email_norm not in OCR_UNLIMITED_EMAILS:
             can_use, used = check_can_use(email_norm, estimated)
             if not can_use:
+                limit = get_effective_ocr_page_limit(email_norm)
                 return {
                     "status": "limit_reached",
                     "message": "이용가능한 무료 횟수를 다 사용하셨습니다",
                     "pages_used": used,
-                    "pages_limit": OCR_PAGE_LIMIT,
+                    "pages_limit": limit,
                 }
 
         # 소켓 진행률 알림 콜백 (job_id가 있을 때만)

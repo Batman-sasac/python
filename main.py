@@ -44,7 +44,37 @@ if os.getenv("OCR_TWO_COLUMN_LAYOUT", "").lower() in ("1", "true", "yes"):
         "OCR_TWO_COLUMN_LAYOUT 활성화 — 2열 단어장일 때 original_text 를 왼쪽|오른쪽 형태로 합침"
     )
 
-app = FastAPI()
+app = FastAPI(
+    title="Bat Python API",
+    description=(
+        "백엔드 REST API. 인증이 필요한 엔드포인트는 `Authorization: Bearer <JWT>` 헤더가 필요합니다.\n\n"
+        "**OCR 플랜 (월간)**\n"
+        "- `free`: 20페이지/월 (구독 없음, 기본)\n"
+        "- `basic`: 100페이지/월 (Apple IAP Basic 구독)\n"
+        "- `pro`: 250페이지/월 (Apple IAP Pro 구독)\n"
+        "- 쿠폰: 플랜 한도 위 +20페이지 (**등록한 달/주기만**, 다음 주기 리셋 시 소멸)\n\n"
+        "**Apple IAP**\n"
+        "iOS StoreKit 구매/복원 후 `transaction_id`를 `POST /iap/verify-subscription`으로 전달하세요."
+    ),
+    version="1.0.0",
+    openapi_tags=[
+        {
+            "name": "IAP",
+            "description": (
+                "Apple 자동 갱신 구독. StoreKit2 구매/복원 → `transaction_id` 검증 → "
+                "`subscriptions` DB 저장 → OCR 플랜(basic/pro) 반영."
+            ),
+        },
+        {
+            "name": "Coupons",
+            "description": "쿠폰 코드 등록. OCR 월간 한도에 +20페이지 보너스.",
+        },
+        {
+            "name": "OCR",
+            "description": "Clova OCR 및 사용량·플랜 조회.",
+        },
+    ],
+)
 
 # 이걸 안 하면 미들웨어가 CSS 파일 요청도 로그인이 안 됐다고 막아버립니다.
 if os.path.exists("static"):
